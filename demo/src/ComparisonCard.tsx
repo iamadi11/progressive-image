@@ -92,6 +92,11 @@ function ImgViaFetch({
 }) {
   const imgRef = useRef<HTMLImageElement>(null);
   const blobUrlRef = useRef<string | null>(null);
+  const onFullRef = useRef(onFull);
+  const onFirstPixelRef = useRef(onFirstPixel);
+  onFullRef.current = onFull;
+  onFirstPixelRef.current = onFirstPixel;
+
   const [displaySrc, setDisplaySrc] = useState<string>(
     placeholder ?? LOADING_PLACEHOLDER
   );
@@ -114,7 +119,7 @@ function ImgViaFetch({
         const res = await fetch(fetchUrl);
         if (!res.ok) {
           img.src = src;
-          img.onload = () => onFull();
+          img.onload = () => onFullRef.current();
           return;
         }
         const blob = await res.blob();
@@ -139,21 +144,19 @@ function ImgViaFetch({
                 ? (r as PerformanceResourceTiming).transferSize
                 : (r as PerformanceResourceTiming & { encodedBodySize?: number }).encodedBodySize
               : undefined;
-          onFull(size);
+          onFullRef.current(size);
         } catch {
-          onFull();
+          onFullRef.current();
         }
-        // Do NOT revoke here - img is still displaying the blob; revoke only in cleanup
       } catch {
         img.src = src;
-        img.onload = () => onFull();
+        img.onload = () => onFullRef.current();
       }
     };
 
     if (placeholder) {
-      const reportFirstPixel = () => onFirstPixel?.();
       const onReady = () => {
-        reportFirstPixel();
+        onFirstPixelRef.current?.();
         loadFull();
       };
       if (img.complete) {
@@ -162,7 +165,7 @@ function ImgViaFetch({
         img.addEventListener('load', onReady, { once: true });
       }
     } else {
-      onFirstPixel?.();
+      onFirstPixelRef.current?.();
       loadFull();
     }
 
@@ -170,7 +173,7 @@ function ImgViaFetch({
       const url = blobUrlRef.current;
       if (url) URL.revokeObjectURL(url);
     };
-  }, [loadTrigger, src, placeholder, fetchpriority, onFirstPixel, onFull]);
+  }, [loadTrigger, src, placeholder, fetchpriority]);
 
   const handleError = useCallback(() => {
     const img = imgRef.current;
