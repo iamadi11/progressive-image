@@ -28,8 +28,14 @@ export function SidecarCapabilityTest() {
     };
   }, [tilesPathEnabled]);
 
+  const hasTriggeredRef = useRef(false);
   const handlePhase = useCallback((p: string) => {
     setPhase(p);
+    if (!hasTriggeredRef.current) {
+      hasTriggeredRef.current = true;
+      setLazyLoaded(true); // Load only starts when in view (eager=false)
+      t0Ref.current = performance.now();
+    }
     setPhases((prev) => {
       if (prev[prev.length - 1] === p) return prev;
       return [...prev, p];
@@ -49,12 +55,8 @@ export function SidecarCapabilityTest() {
     setPhase(`error: ${err.message}`);
   }, []);
 
-  const handleInView = useCallback(() => {
-    setLazyLoaded(true);
-    t0Ref.current = performance.now();
-  }, []);
-
   const resetTest = useCallback(() => {
+    hasTriggeredRef.current = false;
     setPhase('—');
     setPhases([]);
     setMetrics({});
