@@ -1,0 +1,22 @@
+{
+  "name": "@sidecar/bench",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "synthetic": "tsx synthetic.ts",
+    "lighthouse": "node lighthouse-ci.mjs",
+    "webpagetest": "node webpagetest.js"
+  },
+  "dependencies": {
+    "@sidecar/build": "workspace:*",
+    "@sidecar/runtime": "workspace:*",
+    "fast-glob": "^3.3.2",
+    "sharp": "^0.33.5"
+  },
+  "devDependencies": {
+    "chrome-launcher": "^1.0.0",
+    "lighthouse": "^11.4.0",
+    "tsx": "^4.19.0"
+  }
+}

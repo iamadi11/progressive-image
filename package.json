@@ -1,0 +1,29 @@
+{
+  "name": "sidecar",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "description": "Production-ready progressive image loading system",
+  "scripts": {
+    "build": "turbo run build",
+    "lint": "eslint .",
+    "typecheck": "turbo run build && pnpm --filter demo exec tsc --noEmit",
+    "dev": "turbo run dev",
+    "demo": "pnpm --filter demo dev",
+    "bench:synthetic": "pnpm --filter @sidecar/bench synthetic",
+    "bench:lighthouse": "pnpm --filter @sidecar/bench lighthouse",
+    "bench:webpagetest": "pnpm --filter @sidecar/bench webpagetest"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.15.0",
+    "chrome-launcher": "^1.0.0",
+    "eslint": "^9.15.0",
+    "eslint-plugin-react": "^7.37.2",
+    "eslint-plugin-react-hooks": "^5.0.0",
+    "lighthouse": "^11.4.0",
+    "typescript-eslint": "^8.15.0",
+    "turbo": "^2.3.0",
+    "tsx": "^4.19.0"
+  },
+  "packageManager": "pnpm@9.14.2"
+}

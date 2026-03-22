@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "noEmit": true
+  },
+  "include": [],
+  "references": [
+    { "path": "packages/build" },
+    { "path": "packages/runtime" },
+    { "path": "packages/react" },
+    { "path": "packages/vite-plugin" },
+    { "path": "packages/next-plugin" }
+  ]
+}
