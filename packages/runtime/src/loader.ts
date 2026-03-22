@@ -49,8 +49,8 @@ export async function loadProgressive(
   };
 
   const reportPhase = (phase: 'placeholder' | 'pyramid' | 'tiles' | 'full') => {
-    options.onPhase(phase);
-    options.onFrame({ phase, elapsed: performance.now() - startTime });
+    options.onPhase?.(phase);
+    options.onFrame?.({ phase, elapsed: performance.now() - startTime });
   };
 
   reportPhase('placeholder');
@@ -96,54 +96,68 @@ export async function loadProgressive(
 
   reportPhase('pyramid');
 
-  for (let i = 1; i < levelBlobs.length; i++) {
-    const blob = levelBlobs[i];
-    const url = createObjectURL(blob);
-    await img.decode();
-    await new Promise<void>((r) => requestAnimationFrame(() => r()));
-    img.style.opacity = '0';
-    img.src = url;
-    await img.decode();
-    img.style.opacity = '1';
-    options.onFrame({ phase: 'pyramid', elapsed: performance.now() - startTime });
-  }
+  try {
+    for (let i = 1; i < levelBlobs.length; i++) {
+      const blob = levelBlobs[i];
+      const url = createObjectURL(blob);
+      await img.decode();
+      await new Promise<void>((r) => requestAnimationFrame(() => r()));
+      img.style.opacity = '0';
+      img.src = url;
+      await img.decode();
+      img.style.opacity = '1';
+      options.onFrame?.({ phase: 'pyramid', elapsed: performance.now() - startTime });
+    }
 
-  const connection = (navigator as Navigator & { connection?: { downlink?: number } }).connection;
-  const downlinkMbps = connection?.downlink ?? 0;
-  const isSlowConnection = connection === undefined || downlinkMbps < options.slowConnectionThreshold;
+    const connection = (navigator as Navigator & { connection?: { downlink?: number } }).connection;
+    const downlinkMbps = connection?.downlink ?? 0;
+    const isSlowConnection =
+      connection === undefined || downlinkMbps < options.slowConnectionThreshold;
 
-  if (
-    !options.skipTiles &&
-    isSlowConnection &&
-    manifest.levelCount > 0 &&
-    manifest.tiles.some((t) => t.length > 0)
-  ) {
-    reportPhase('tiles');
-    img.fetchPriority = 'high';
-    const container = img.parentElement;
-    if (container) {
-      try {
-        await streamTiles(container, img, imageURL, manifest, {
-          concurrency: options.tileConcurrency,
-          onTile: () => options.onFrame({ phase: 'tiles', elapsed: performance.now() - startTime }),
-          urlRegistry,
-        });
-      } catch {
-        /* graceful */
+    if (
+      !options.skipTiles &&
+      isSlowConnection &&
+      manifest.levelCount > 0 &&
+      manifest.tiles.some((t) => t.length > 0)
+    ) {
+      reportPhase('tiles');
+      img.fetchPriority = 'high';
+      const container = img.parentElement;
+      if (container) {
+        try {
+          await streamTiles(container, img, imageURL, manifest, {
+            concurrency: options.tileConcurrency,
+            onTile: () =>
+              options.onFrame?.({ phase: 'tiles', elapsed: performance.now() - startTime }),
+            urlRegistry,
+          });
+        } catch {
+          /* graceful */
+        }
       }
     }
-  }
 
-  reportPhase('full');
-  img.style.opacity = '0';
-  img.src = imageURL;
-  img.fetchPriority = 'high';
-  await img.decode();
-  img.style.opacity = '1';
-  const container = img.parentElement;
-  if (container) {
-    const tileImgs = container.querySelectorAll('img[data-sidecar-tile]');
-    tileImgs.forEach((el) => el.remove());
+    reportPhase('full');
+    img.style.opacity = '0';
+    img.src = imageURL;
+    img.fetchPriority = 'high';
+    await img.decode();
+    img.style.opacity = '1';
+  } catch {
+    img.src = imageURL;
+    try {
+      await img.decode();
+    } catch {
+      /* let broken image show */
+    }
+    img.style.opacity = '1';
+    reportPhase('full');
+  } finally {
+    const container = img.parentElement;
+    if (container) {
+      const tileImgs = container.querySelectorAll('img[data-sidecar-tile]');
+      tileImgs.forEach((el) => el.remove());
+    }
+    revokeAll();
   }
-  revokeAll();
 }

@@ -101,7 +101,7 @@ export function ComparisonCard({
   }, [reportMetrics]);
 
   const sidecarLoaderOptions = useMemo(
-    () => ({ onPhase: handleSidecarPhase }),
+    () => ({ onPhase: handleSidecarPhase, skipTiles: true }),
     [handleSidecarPhase]
   );
 
