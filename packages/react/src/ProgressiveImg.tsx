@@ -109,6 +109,7 @@ export function ProgressiveImg({
         overflow: 'hidden',
         width,
         height,
+        background: '#e0e0e0',
         ...style,
       }}
     >

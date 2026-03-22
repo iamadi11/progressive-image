@@ -55,8 +55,7 @@ export async function loadProgressive(
 
   reportPhase('placeholder');
 
-  img.width = 0;
-  img.height = 0;
+  img.style.transition = 'opacity 0.15s ease-out';
 
   let res: Response;
   try {
@@ -102,8 +101,10 @@ export async function loadProgressive(
     const url = createObjectURL(blob);
     await img.decode();
     await new Promise<void>((r) => requestAnimationFrame(() => r()));
+    img.style.opacity = '0';
     img.src = url;
     await img.decode();
+    img.style.opacity = '1';
     options.onFrame({ phase: 'pyramid', elapsed: performance.now() - startTime });
   }
 
@@ -134,9 +135,11 @@ export async function loadProgressive(
   }
 
   reportPhase('full');
+  img.style.opacity = '0';
   img.src = imageURL;
   img.fetchPriority = 'high';
   await img.decode();
+  img.style.opacity = '1';
   const container = img.parentElement;
   if (container) {
     const tileImgs = container.querySelectorAll('img[data-sidecar-tile]');
