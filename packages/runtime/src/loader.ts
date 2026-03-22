@@ -57,12 +57,11 @@ export async function loadProgressive(
 
   img.style.transition = 'opacity 0.15s ease-out';
 
-  // Prefetch full image in parallel with sidecar so it's ready (or cached) when we need it
-  const fullImagePromise = fetch(imageURL);
-
-  let res: Response;
+  // Fetch both in parallel; show full immediately when ready (skip pyramid when full is fast)
+  let sidecarRes: Response;
+  let fullRes: Response;
   try {
-    res = await fetch(sidecarURL);
+    [sidecarRes, fullRes] = await Promise.all([fetch(sidecarURL), fetch(imageURL)]);
   } catch {
     img.src = imageURL;
     await img.decode();
@@ -71,7 +70,7 @@ export async function loadProgressive(
     return;
   }
 
-  if (!res.ok) {
+  if (!sidecarRes.ok) {
     img.src = imageURL;
     await img.decode();
     revokeAll();
@@ -79,7 +78,7 @@ export async function loadProgressive(
     return;
   }
 
-  const sidecarBuf = await res.arrayBuffer();
+  const sidecarBuf = await sidecarRes.arrayBuffer();
   let manifest;
   let levelBlobs: Blob[];
   try {
@@ -100,64 +99,65 @@ export async function loadProgressive(
   reportPhase('pyramid');
 
   try {
-    for (let i = 1; i < levelBlobs.length; i++) {
-      const blob = levelBlobs[i];
-      const url = createObjectURL(blob);
-      await img.decode();
-      await new Promise<void>((r) => requestAnimationFrame(() => r()));
+    if (fullRes.ok) {
+      // Full image ready; show it immediately (skip pyramid)
       img.style.opacity = '0';
-      img.src = url;
+      const blob = await fullRes.blob();
+      img.src = createObjectURL(blob);
+      img.fetchPriority = 'high';
       await img.decode();
       img.style.opacity = '1';
-      options.onFrame?.({ phase: 'pyramid', elapsed: performance.now() - startTime });
-    }
+      reportPhase('full');
+    } else {
+      // Full fetch failed; run pyramid then fallback to imageURL
+      for (let i = 1; i < levelBlobs.length; i++) {
+        const blob = levelBlobs[i];
+        const url = createObjectURL(blob);
+        await img.decode();
+        await new Promise<void>((r) => requestAnimationFrame(() => r()));
+        img.style.opacity = '0';
+        img.src = url;
+        await img.decode();
+        img.style.opacity = '1';
+        options.onFrame?.({ phase: 'pyramid', elapsed: performance.now() - startTime });
+      }
 
-    const connection = (navigator as Navigator & { connection?: { downlink?: number } }).connection;
-    const downlinkMbps = connection?.downlink ?? 0;
-    const isSlowConnection =
-      connection === undefined || downlinkMbps < options.slowConnectionThreshold;
+      const connection = (navigator as Navigator & { connection?: { downlink?: number } })
+        .connection;
+      const downlinkMbps = connection?.downlink ?? 0;
+      const isSlowConnection =
+        connection === undefined || downlinkMbps < options.slowConnectionThreshold;
 
-    if (
-      !options.skipTiles &&
-      isSlowConnection &&
-      manifest.levelCount > 0 &&
-      manifest.tiles.some((t) => t.length > 0)
-    ) {
-      reportPhase('tiles');
-      img.fetchPriority = 'high';
-      const container = img.parentElement;
-      if (container) {
-        try {
-          await streamTiles(container, img, imageURL, manifest, {
-            concurrency: options.tileConcurrency,
-            onTile: () =>
-              options.onFrame?.({ phase: 'tiles', elapsed: performance.now() - startTime }),
-            urlRegistry,
-          });
-        } catch {
-          /* graceful */
+      if (
+        !options.skipTiles &&
+        isSlowConnection &&
+        manifest.levelCount > 0 &&
+        manifest.tiles.some((t) => t.length > 0)
+      ) {
+        reportPhase('tiles');
+        img.fetchPriority = 'high';
+        const container = img.parentElement;
+        if (container) {
+          try {
+            await streamTiles(container, img, imageURL, manifest, {
+              concurrency: options.tileConcurrency,
+              onTile: () =>
+                options.onFrame?.({ phase: 'tiles', elapsed: performance.now() - startTime }),
+              urlRegistry,
+            });
+          } catch {
+            /* graceful */
+          }
         }
       }
-    }
 
-    reportPhase('full');
-    img.style.opacity = '0';
-    let fullUrl: string;
-    try {
-      const fullRes = await fullImagePromise;
-      if (fullRes.ok) {
-        const blob = await fullRes.blob();
-        fullUrl = createObjectURL(blob);
-      } else {
-        fullUrl = imageURL;
-      }
-    } catch {
-      fullUrl = imageURL;
+      reportPhase('full');
+      img.style.opacity = '0';
+      img.src = imageURL;
+      img.fetchPriority = 'high';
+      await img.decode();
+      img.style.opacity = '1';
     }
-    img.src = fullUrl;
-    img.fetchPriority = 'high';
-    await img.decode();
-    img.style.opacity = '1';
   } catch {
     img.src = imageURL;
     try {
