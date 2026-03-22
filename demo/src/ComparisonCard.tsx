@@ -1,46 +1,20 @@
-/**
- * Reusable card for the loading strategy comparison.
- * Renders one strategy with its image and metrics.
- */
-
 import React, { useRef, useState, useCallback, useEffect, useMemo } from 'react';
 import { ProgressiveImg } from '@sidecar/react';
 
 export interface StrategyMetrics {
-  /** Time (ms) to first pixel / placeholder visible */
-  firstPixel?: number;
-  /** Time (ms) to recognisable content (pyramid level or full) */
-  recognisable?: number;
-  /** Time (ms) to pyramid phase (sidecar parsed, level 1+ available) */
-  pyramid?: number;
-  /** Time (ms) to tiles phase (if used) */
-  tiles?: number;
-  /** Time (ms) to full-resolution image */
-  full?: number;
-  /** Phase progression: which phases were reached */
-  phasesReached?: string[];
-  /** Resource transfer sizes (bytes) - from Performance API when available */
-  sidecarBytes?: number;
-  imageBytes?: number;
+  firstPaint?: number;
+  fullLoad?: number;
 }
 
 export interface ComparisonCardProps {
   strategy: 'sidecar' | 'native' | 'blurhash' | 'lqip' | 'progressive-jpeg';
-  strategyId: string;
   label: string;
   description: string;
-  onMetrics?: (strategyId: string, metrics: StrategyMetrics) => void;
+  imageSrc: string;
   loadTrigger: number;
+  onMetrics?: (strategyId: string, metrics: StrategyMetrics) => void;
   width?: number;
   height?: number;
-  /** Override loader options for sidecar (e.g. skipTiles, slowConnectionThreshold) */
-  loaderOverrides?: { skipTiles?: boolean; slowConnectionThreshold?: number };
-  /** When true, main image fetch is forced to fail to test pyramid+tiles path */
-  forceTilesPath?: boolean;
-  /** Image URL (default: /images/test.jpg) */
-  imageSrc?: string;
-  /** Sidecar URL (default: /images/test.sidecar) */
-  sidecarSrc?: string;
 }
 
 const BLURHASH_PLACEHOLDER =
@@ -55,295 +29,50 @@ const LQIP_PLACEHOLDER =
     '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"><rect fill="#999" width="1" height="1"/></svg>'
   );
 
-/** Gray placeholder for strategies without custom placeholder (Native, Progressive) */
-const LOADING_PLACEHOLDER =
-  'data:image/svg+xml,' +
-  encodeURIComponent(
-    '<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1" viewBox="0 0 1 1"><rect fill="%23333" width="100%" height="100%"/></svg>'
-  );
-
-/**
- * Loads image via fetch() so the demo throttle applies. Use for native/blurhash/lqip/progressive
- * strategies to ensure fair comparison with Sidecar (which uses fetch for sidecar + image).
- */
-function ImgViaFetch({
-  src,
-  placeholder,
-  placeholderFilter,
-  width,
-  height,
-  alt,
-  style,
-  fetchpriority,
-  onFirstPixel,
-  onFull,
-  loadTrigger,
-}: {
-  src: string;
-  placeholder?: string;
-  placeholderFilter?: string;
-  width: number;
-  height: number;
-  alt: string;
-  style: React.CSSProperties;
-  fetchpriority?: 'high' | 'low' | 'auto';
-  onFirstPixel?: () => void;
-  onFull: (imageBytes?: number) => void;
-  loadTrigger: number;
-}) {
-  const imgRef = useRef<HTMLImageElement>(null);
-  const blobUrlRef = useRef<string | null>(null);
-  const onFullRef = useRef(onFull);
-  const onFirstPixelRef = useRef(onFirstPixel);
-  onFullRef.current = onFull;
-  onFirstPixelRef.current = onFirstPixel;
-
-  const [displaySrc, setDisplaySrc] = useState<string>(
-    placeholder ?? LOADING_PLACEHOLDER
-  );
-  const [isPlaceholder, setIsPlaceholder] = useState(true);
-
-  useEffect(() => {
-    if (loadTrigger <= 0) return;
-    setDisplaySrc(placeholder ?? LOADING_PLACEHOLDER);
-    setIsPlaceholder(true);
-  }, [loadTrigger, placeholder]);
-
-  useEffect(() => {
-    if (loadTrigger <= 0) return;
-    const img = imgRef.current;
-    if (!img) return;
-
-    const loadFull = async () => {
-      const fetchUrl = src.startsWith('/') ? new URL(src, window.location.origin).href : src;
-      try {
-        const res = await fetch(fetchUrl);
-        if (!res.ok) {
-          img.src = src;
-          img.onload = () => onFullRef.current();
-          return;
-        }
-        const blob = await res.blob();
-        const url = URL.createObjectURL(blob);
-        blobUrlRef.current = url;
-        img.style.opacity = '0';
-        img.src = url;
-        setDisplaySrc(url);
-        setIsPlaceholder(false);
-        if (fetchpriority) img.fetchPriority = fetchpriority;
-        await img.decode();
-        img.style.opacity = '1';
-        try {
-          const entries = performance.getEntriesByType('resource');
-          const r = entries.find(
-            (e) =>
-              (typeof e.name === 'string' && (e.name === fetchUrl || e.name.includes(src.split('/').pop() ?? '')))
-          );
-          const size =
-            r && 'transferSize' in r
-              ? (r as PerformanceResourceTiming).transferSize > 0
-                ? (r as PerformanceResourceTiming).transferSize
-                : (r as PerformanceResourceTiming & { encodedBodySize?: number }).encodedBodySize
-              : undefined;
-          onFullRef.current(size);
-        } catch {
-          onFullRef.current();
-        }
-      } catch {
-        img.src = src;
-        img.onload = () => onFullRef.current();
-      }
-    };
-
-    if (placeholder) {
-      const onReady = () => {
-        onFirstPixelRef.current?.();
-        loadFull();
-      };
-      if (img.complete) {
-        onReady();
-      } else {
-        img.addEventListener('load', onReady, { once: true });
-      }
-    } else {
-      onFirstPixelRef.current?.();
-      loadFull();
-    }
-
-    return () => {
-      const url = blobUrlRef.current;
-      if (url) URL.revokeObjectURL(url);
-    };
-  }, [loadTrigger, src, placeholder, fetchpriority]);
-
-  const handleError = useCallback(() => {
-    const img = imgRef.current;
-    if (img && displaySrc !== src) {
-      img.src = src;
-      img.onload = () => onFull();
-    }
-  }, [displaySrc, src, onFull]);
-
-  return (
-    <img
-      ref={imgRef}
-      src={displaySrc}
-      alt={alt}
-      width={width}
-      height={height}
-      onError={handleError}
-      style={{
-        ...style,
-        transition: 'opacity 0.15s ease-out',
-        filter: isPlaceholder && placeholderFilter ? placeholderFilter : undefined,
-      }}
-      {...(fetchpriority ? ({ fetchpriority } as React.ComponentProps<'img'>) : {})}
-    />
-  );
-}
-
-const DEFAULT_IMAGE_SRC = '/images/test.jpg';
-const DEFAULT_SIDECAR_SRC = '/images/test.sidecar';
-
 export function ComparisonCard({
   strategy,
-  strategyId,
   label,
   description,
-  onMetrics,
+  imageSrc,
   loadTrigger,
+  onMetrics,
   width = 280,
   height = 175,
-  loaderOverrides,
-  forceTilesPath = false,
-  imageSrc = DEFAULT_IMAGE_SRC,
-  sidecarSrc = DEFAULT_SIDECAR_SRC,
 }: ComparisonCardProps) {
-  const imageFilename = imageSrc.split('/').pop() ?? '';
-  const t0Ref = useRef<number>(0);
+  const t0Ref = useRef(0);
+  const firstPaintRecordedRef = useRef(false);
   const [metrics, setMetrics] = useState<StrategyMetrics>({});
-  const phasesRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     if (loadTrigger > 0) {
       t0Ref.current = performance.now();
+      firstPaintRecordedRef.current = false;
       setMetrics({});
-      phasesRef.current = new Set();
     }
   }, [loadTrigger]);
 
-  const reportMetrics = useCallback((update: Partial<StrategyMetrics>) => {
-    setMetrics((prev) => ({ ...prev, ...update }));
-  }, []);
-
-  // Sync metrics to parent in effect to avoid setState-in-render (onMetrics
-  // updates ComparisonDashboard while ComparisonCard is rendering).
   useEffect(() => {
-    onMetrics?.(strategyId, metrics);
-  }, [strategyId, metrics, onMetrics]);
+    onMetrics?.(strategy, metrics);
+  }, [strategy, metrics, onMetrics]);
 
-  const handleSidecarPhase = useCallback(
-    (phase: string) => {
-      const elapsed = performance.now() - t0Ref.current;
-      phasesRef.current.add(phase);
-      const phases = Array.from(phasesRef.current);
-      if (phase === 'placeholder') {
-        reportMetrics({ firstPixel: elapsed, phasesReached: phases });
-      } else if (phase === 'pyramid') {
-        reportMetrics({
-          pyramid: elapsed,
-          recognisable: elapsed,
-          phasesReached: phases,
-        });
-      } else if (phase === 'tiles') {
-        reportMetrics({ tiles: elapsed, phasesReached: phases });
-      } else if (phase === 'full') {
-        reportMetrics({ full: elapsed, phasesReached: phases });
-      }
-    },
-    [reportMetrics]
-  );
-
-  const handleSidecarFrame = useCallback(
-    (f: { phase: string; elapsed: number }) => {
-      const phases = Array.from(phasesRef.current);
-      if (f.phase === 'pyramid') {
-        reportMetrics({
-          pyramid: f.elapsed,
-          recognisable: f.elapsed,
-          phasesReached: phases,
-        });
-      } else if (f.phase === 'tiles') {
-        reportMetrics({ tiles: f.elapsed, phasesReached: phases });
-      }
-    },
-    [reportMetrics]
-  );
-
-  const handleSidecarLoad = useCallback(() => {
-    const elapsed = performance.now() - t0Ref.current;
-    // Collect resource timing for bytes
-    try {
-      const entries = performance.getEntriesByType('resource');
-      const sidecar = entries.find((e) => e.name.includes('.sidecar'));
-      const img = entries.find((e) => (typeof e.name === 'string' && e.name.includes(imageFilename)));
-      const transferSize = (e: PerformanceResourceTiming) =>
-        e.transferSize > 0 ? e.transferSize : (e as PerformanceResourceTiming & { encodedBodySize?: number }).encodedBodySize ?? 0;
-      reportMetrics({
-        full: elapsed,
-        sidecarBytes: sidecar ? transferSize(sidecar as PerformanceResourceTiming) : undefined,
-        imageBytes: img ? transferSize(img as PerformanceResourceTiming) : undefined,
-      });
-    } catch {
-      reportMetrics({ full: elapsed });
-    }
-  }, [reportMetrics, imageFilename]);
-
-  const handleSidecarError = useCallback((err: Error) => {
-    console.error('[Sidecar] load failed:', err);
+  const recordFirstPaint = useCallback(() => {
+    if (firstPaintRecordedRef.current) return;
+    firstPaintRecordedRef.current = true;
+    setMetrics((prev) => ({ ...prev, firstPaint: performance.now() - t0Ref.current }));
   }, []);
 
-  const handleImgLoad = useCallback(() => {
-    const elapsed = performance.now() - t0Ref.current;
-    try {
-      const entries = performance.getEntriesByType('resource');
-      const img = entries.find((e) => (typeof e.name === 'string' && e.name.includes(imageFilename)));
-      const transferSize = (e: PerformanceResourceTiming) =>
-        e.transferSize > 0 ? e.transferSize : (e as PerformanceResourceTiming & { encodedBodySize?: number }).encodedBodySize ?? 0;
-      reportMetrics({
-        full: elapsed,
-        imageBytes: img ? transferSize(img as PerformanceResourceTiming) : undefined,
-      });
-    } catch {
-      reportMetrics({ full: elapsed });
-    }
-  }, [reportMetrics, imageFilename]);
-
-  const handlePlaceholderLoad = useCallback(() => {
-    const elapsed = performance.now() - t0Ref.current;
-    reportMetrics({ firstPixel: elapsed });
-  }, [reportMetrics]);
+  const recordFullLoad = useCallback(() => {
+    setMetrics((prev) => ({ ...prev, fullLoad: performance.now() - t0Ref.current }));
+  }, []);
 
   const sidecarLoaderOptions = useMemo(
-    () => ({
-      onPhase: handleSidecarPhase,
-      onFrame: handleSidecarFrame,
-      skipTiles: loaderOverrides?.skipTiles ?? false,
-      slowConnectionThreshold: loaderOverrides?.slowConnectionThreshold ?? 10,
-    }),
-    [handleSidecarPhase, handleSidecarFrame, loaderOverrides]
+    () => ({ onPhase: (phase: string) => { if (phase === 'placeholder') recordFirstPaint(); } }),
+    [recordFirstPaint],
   );
 
   if (loadTrigger === 0) {
     return (
-      <div
-        style={{
-          border: '1px solid #333',
-          borderRadius: 8,
-          padding: 16,
-          background: '#222',
-        }}
-      >
+      <div style={{ border: '1px solid #333', borderRadius: 8, padding: 16, background: '#222' }}>
         <h3 style={{ margin: '0 0 4px 0', fontSize: 16 }}>{label}</h3>
         <p style={{ margin: '0 0 12px 0', fontSize: 12, color: '#999' }}>{description}</p>
         <div
@@ -361,13 +90,13 @@ export function ComparisonCard({
           Click &quot;Start comparison&quot; to load
         </div>
         <p style={{ margin: '8px 0 0 0', fontSize: 11, color: '#666' }}>
-          Placeholder: — | Pyramid: — | Full: — | Bytes: —
+          First paint: — | Full load: —
         </p>
       </div>
     );
   }
 
-  const imageContainerStyle: React.CSSProperties = {
+  const containerStyle: React.CSSProperties = {
     position: 'relative',
     width: '100%',
     aspectRatio: `${width}/${height}`,
@@ -385,31 +114,24 @@ export function ComparisonCard({
   };
 
   return (
-    <div
-      style={{
-        border: '1px solid #333',
-        borderRadius: 8,
-        padding: 16,
-        background: '#222',
-      }}
-    >
+    <div style={{ border: '1px solid #333', borderRadius: 8, padding: 16, background: '#222' }}>
       <h3 style={{ margin: '0 0 4px 0', fontSize: 16 }}>{label}</h3>
       <p style={{ margin: '0 0 12px 0', fontSize: 12, color: '#999' }}>{description}</p>
-      <div style={imageContainerStyle}>
+      <div style={containerStyle}>
         {strategy === 'sidecar' && (
           <ProgressiveImg
-            src={forceTilesPath ? `${imageSrc}?forceTiles=1` : imageSrc}
-            sidecarSrc={sidecarSrc}
+            src={imageSrc}
             alt={label}
             width={width}
             height={height}
             eager
             loaderOptions={sidecarLoaderOptions}
-            onLoad={handleSidecarLoad}
-            onError={handleSidecarError}
+            onLoad={recordFullLoad}
+            onError={(err) => console.error('[Sidecar]', err)}
             style={imgStyle}
           />
         )}
+
         {strategy === 'native' && (
           <img
             src={imageSrc}
@@ -418,36 +140,37 @@ export function ComparisonCard({
             height={height}
             {...({ fetchpriority: 'high' } as React.ComponentProps<'img'>)}
             style={imgStyle}
-            onLoad={handleImgLoad}
+            onLoad={recordFullLoad}
           />
         )}
+
         {strategy === 'blurhash' && (
-          <ImgViaFetch
-            src={imageSrc}
+          <PlaceholderSwap
+            imageSrc={imageSrc}
             placeholder={BLURHASH_PLACEHOLDER}
             placeholderFilter="blur(20px)"
+            alt={label}
             width={width}
             height={height}
-            alt={label}
-            style={imgStyle}
-            onFirstPixel={handlePlaceholderLoad}
-            onFull={handleImgLoad}
-            loadTrigger={loadTrigger}
+            imgStyle={imgStyle}
+            onFirstPaint={recordFirstPaint}
+            onFullLoad={recordFullLoad}
           />
         )}
+
         {strategy === 'lqip' && (
-          <ImgViaFetch
-            src={imageSrc}
+          <PlaceholderSwap
+            imageSrc={imageSrc}
             placeholder={LQIP_PLACEHOLDER}
+            alt={label}
             width={width}
             height={height}
-            alt={label}
-            style={imgStyle}
-            onFirstPixel={handlePlaceholderLoad}
-            onFull={handleImgLoad}
-            loadTrigger={loadTrigger}
+            imgStyle={imgStyle}
+            onFirstPaint={recordFirstPaint}
+            onFullLoad={recordFullLoad}
           />
         )}
+
         {strategy === 'progressive-jpeg' && (
           <img
             src={imageSrc}
@@ -455,23 +178,77 @@ export function ComparisonCard({
             width={width}
             height={height}
             style={imgStyle}
-            onLoad={handleImgLoad}
+            onLoad={recordFullLoad}
           />
         )}
       </div>
       <div style={{ margin: '8px 0 0 0', fontSize: 11, color: '#888' }}>
-        <div>
-          Placeholder: {metrics.firstPixel != null ? `${Math.round(metrics.firstPixel)}ms` : '—'} |
-          Pyramid: {metrics.pyramid != null ? `${Math.round(metrics.pyramid)}ms` : '—'} |
-          Tiles: {metrics.tiles != null ? `${Math.round(metrics.tiles)}ms` : '—'} |
-          Full: {metrics.full != null ? `${Math.round(metrics.full)}ms` : '—'}
-        </div>
-        {(metrics.sidecarBytes != null || metrics.imageBytes != null) && (
-          <div style={{ marginTop: 2, color: '#666' }}>
-            Bytes: sidecar {metrics.sidecarBytes ?? '—'} | image {metrics.imageBytes ?? '—'}
-          </div>
-        )}
+        First paint: {metrics.firstPaint != null ? `${Math.round(metrics.firstPaint)}ms` : '—'}
+        {' | '}
+        Full load: {metrics.fullLoad != null ? `${Math.round(metrics.fullLoad)}ms` : '—'}
       </div>
     </div>
+  );
+}
+
+/**
+ * Two-layer placeholder swap: shows a data-URI placeholder immediately,
+ * loads the full image natively via <img>, fades it in when ready.
+ * This is how BlurHash / LQIP work in production.
+ */
+function PlaceholderSwap({
+  imageSrc,
+  placeholder,
+  placeholderFilter,
+  alt,
+  width,
+  height,
+  imgStyle,
+  onFirstPaint,
+  onFullLoad,
+}: {
+  imageSrc: string;
+  placeholder: string;
+  placeholderFilter?: string;
+  alt: string;
+  width: number;
+  height: number;
+  imgStyle: React.CSSProperties;
+  onFirstPaint: () => void;
+  onFullLoad: () => void;
+}) {
+  const [loaded, setLoaded] = useState(false);
+
+  return (
+    <>
+      <img
+        src={placeholder}
+        alt=""
+        width={width}
+        height={height}
+        onLoad={onFirstPaint}
+        style={{
+          ...imgStyle,
+          filter: placeholderFilter,
+          opacity: loaded ? 0 : 1,
+          transition: 'opacity 0.15s ease-out',
+        }}
+      />
+      <img
+        src={imageSrc}
+        alt={alt}
+        width={width}
+        height={height}
+        onLoad={() => {
+          setLoaded(true);
+          onFullLoad();
+        }}
+        style={{
+          ...imgStyle,
+          opacity: loaded ? 1 : 0,
+          transition: 'opacity 0.15s ease-out',
+        }}
+      />
+    </>
   );
 }

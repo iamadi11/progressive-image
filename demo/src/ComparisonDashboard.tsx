@@ -1,12 +1,5 @@
-/**
- * Comparison dashboard showing all five loading strategies side-by-side.
- */
-
-import './fetchSetup';
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { ComparisonCard } from './ComparisonCard';
-import { SidecarCapabilityTest } from './SidecarCapabilityTest';
-import { setThrottlePreset, THROTTLE_PRESETS, setComparisonForceTilesForFetch } from './fetchSetup';
 import type { StrategyMetrics } from './ComparisonCard';
 
 const STRATEGIES: Array<{
@@ -17,22 +10,22 @@ const STRATEGIES: Array<{
   {
     id: 'sidecar',
     label: 'Sidecar (this system)',
-    description: 'Level 0 inline, pyramid, optional tiles',
+    description: 'Plug-and-play: placeholder, pyramid, optional tiles, full',
   },
   {
     id: 'native',
     label: 'Native fetchpriority',
-    description: 'img with fetchpriority="high"',
+    description: '<img> with fetchpriority="high"',
   },
   {
     id: 'blurhash',
     label: 'BlurHash',
-    description: 'Blur placeholder + swap to full',
+    description: 'Blur placeholder shown instantly, swap on load',
   },
   {
     id: 'lqip',
     label: 'LQIP',
-    description: 'Inline placeholder + swap to full',
+    description: 'Inline low-quality placeholder, swap on load',
   },
   {
     id: 'progressive-jpeg',
@@ -40,8 +33,6 @@ const STRATEGIES: Array<{
     description: 'Native progressive JPEG, no JS',
   },
 ];
-
-type ThrottlePreset = keyof typeof THROTTLE_PRESETS;
 
 const IMAGE_SIZES = [
   { value: 'test.jpg', label: '60KB (default)' },
@@ -53,48 +44,50 @@ const IMAGE_SIZES = [
 
 export function ComparisonDashboard() {
   const [loadTrigger, setLoadTrigger] = useState(0);
-  const [throttlePreset, setThrottlePresetState] = useState<ThrottlePreset>('off');
-  const [forceTilesPath, setForceTilesPath] = useState(false);
   const [imageSize, setImageSize] = useState('test.jpg');
   const [allMetrics, setAllMetrics] = useState<Record<string, StrategyMetrics>>({});
-
-  const imageSrc = `/images/${imageSize}`;
-  const sidecarSrc = `/images/${imageSize.replace(/\.(jpg|jpeg)$/i, '')}.sidecar`;
-
-  const updateThrottle = useCallback((preset: ThrottlePreset) => {
-    setThrottlePreset(preset);
-    setThrottlePresetState(preset);
-  }, []);
+  const cacheBustRef = useRef(0);
 
   const handleStartComparison = useCallback(() => {
-    setComparisonForceTilesForFetch(forceTilesPath);
+    cacheBustRef.current = Date.now();
     performance.clearResourceTimings?.();
+    setAllMetrics({});
     setLoadTrigger((t) => t + 1);
-  }, [forceTilesPath]);
+  }, []);
 
   const handleMetrics = useCallback((strategyId: string, metrics: StrategyMetrics) => {
     setAllMetrics((prev) => ({ ...prev, [strategyId]: metrics }));
   }, []);
 
+  const imageSrc = loadTrigger > 0
+    ? `/images/${imageSize}?v=${cacheBustRef.current}`
+    : `/images/${imageSize}`;
+
+  const filledCount = Object.values(allMetrics).filter((m) => m.fullLoad != null).length;
 
   return (
     <div style={{ padding: 24, maxWidth: 1400, margin: '0 auto' }}>
       <h1>Loading strategy comparison</h1>
-      <p style={{ color: '#999', marginBottom: 24 }}>
-        Compare Sidecar progressive loading against native approaches. Use network throttle (Chrome
-        DevTools–style) to simulate slow connections.
-      </p>
+
+      <div
+        style={{
+          background: '#1a2332',
+          border: '1px solid #2a4a6b',
+          borderRadius: 8,
+          padding: '12px 16px',
+          marginBottom: 24,
+          fontSize: 13,
+          color: '#8bb8e8',
+          lineHeight: 1.5,
+        }}
+      >
+        For a meaningful comparison, enable <strong>Chrome DevTools Network throttling</strong>
+        {' '}(F12 &rarr; Network &rarr; Throttling dropdown &rarr; Slow 3G or Fast 3G).
+        This throttles all network requests equally &mdash; both native &lt;img&gt; and fetch().
+      </div>
 
       <section style={{ marginBottom: 24 }}>
         <div style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
-            <input
-              type="checkbox"
-              checked={forceTilesPath}
-              onChange={(e) => setForceTilesPath(e.target.checked)}
-            />
-            <span>Force pyramid+tiles path (Sidecar)</span>
-          </label>
           <button
             onClick={handleStartComparison}
             style={{
@@ -107,20 +100,8 @@ export function ComparisonDashboard() {
               cursor: 'pointer',
             }}
           >
-            Start comparison
+            {loadTrigger === 0 ? 'Start comparison' : 'Restart comparison'}
           </button>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span>Network:</span>
-            <select
-              value={throttlePreset}
-              onChange={(e) => updateThrottle(e.target.value as ThrottlePreset)}
-              style={{ padding: '6px 10px', fontSize: 14, cursor: 'pointer' }}
-            >
-              <option value="off">No throttling</option>
-              <option value="fast3g">Fast 3G (1.6 Mbps, 563ms RTT)</option>
-              <option value="slow3g">Slow 3G (400 Kbps, 2s RTT)</option>
-            </select>
-          </label>
           <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <span>Image size:</span>
             <select
@@ -147,44 +128,35 @@ export function ComparisonDashboard() {
       >
         {STRATEGIES.map((s) => (
           <ComparisonCard
-            key={s.id}
+            key={`${s.id}-${loadTrigger}`}
             strategy={s.id}
-            strategyId={s.id}
             label={s.label}
             description={s.description}
             loadTrigger={loadTrigger}
             onMetrics={handleMetrics}
-            forceTilesPath={s.id === 'sidecar' ? forceTilesPath : false}
             imageSrc={imageSrc}
-            sidecarSrc={sidecarSrc}
           />
         ))}
       </div>
 
-      {loadTrigger > 0 && Object.keys(allMetrics).length > 0 && (
+      {loadTrigger > 0 && filledCount > 0 && (
         <section style={{ marginTop: 32 }}>
-          <h2 style={{ fontSize: 18, marginBottom: 12 }}>Full Metrics Summary</h2>
+          <h2 style={{ fontSize: 18, marginBottom: 12 }}>Results</h2>
           <div
             style={{
               background: '#222',
               padding: 16,
               borderRadius: 8,
               overflow: 'auto',
-              fontSize: 12,
+              fontSize: 13,
             }}
           >
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
                 <tr style={{ borderBottom: '1px solid #444', textAlign: 'left' }}>
                   <th style={{ padding: '8px 12px' }}>Strategy</th>
-                  <th style={{ padding: '8px 12px' }}>Placeholder</th>
-                  <th style={{ padding: '8px 12px' }}>Pyramid</th>
-                  <th style={{ padding: '8px 12px' }}>Tiles</th>
-                  <th style={{ padding: '8px 12px' }}>Full</th>
-                  <th style={{ padding: '8px 12px' }}>Recognisable</th>
-                  <th style={{ padding: '8px 12px' }}>Sidecar B</th>
-                  <th style={{ padding: '8px 12px' }}>Image B</th>
-                  <th style={{ padding: '8px 12px' }}>Phases</th>
+                  <th style={{ padding: '8px 12px' }}>First paint</th>
+                  <th style={{ padding: '8px 12px' }}>Full load</th>
                 </tr>
               </thead>
               <tbody>
@@ -195,28 +167,10 @@ export function ComparisonDashboard() {
                     <tr key={s.id} style={{ borderBottom: '1px solid #333' }}>
                       <td style={{ padding: '8px 12px' }}>{s.label}</td>
                       <td style={{ padding: '8px 12px' }}>
-                        {m.firstPixel != null ? `${Math.round(m.firstPixel)}ms` : '—'}
+                        {m.firstPaint != null ? `${Math.round(m.firstPaint)}ms` : '—'}
                       </td>
                       <td style={{ padding: '8px 12px' }}>
-                        {m.pyramid != null ? `${Math.round(m.pyramid)}ms` : '—'}
-                      </td>
-                      <td style={{ padding: '8px 12px' }}>
-                        {m.tiles != null ? `${Math.round(m.tiles)}ms` : '—'}
-                      </td>
-                      <td style={{ padding: '8px 12px' }}>
-                        {m.full != null ? `${Math.round(m.full)}ms` : '—'}
-                      </td>
-                      <td style={{ padding: '8px 12px' }}>
-                        {m.recognisable != null ? `${Math.round(m.recognisable)}ms` : '—'}
-                      </td>
-                      <td style={{ padding: '8px 12px' }}>
-                        {m.sidecarBytes != null ? `${(m.sidecarBytes / 1024).toFixed(1)}KB` : '—'}
-                      </td>
-                      <td style={{ padding: '8px 12px' }}>
-                        {m.imageBytes != null ? `${(m.imageBytes / 1024).toFixed(1)}KB` : '—'}
-                      </td>
-                      <td style={{ padding: '8px 12px', fontSize: 10 }}>
-                        {m.phasesReached?.join('→') ?? '—'}
+                        {m.fullLoad != null ? `${Math.round(m.fullLoad)}ms` : '—'}
                       </td>
                     </tr>
                   );
@@ -226,8 +180,6 @@ export function ComparisonDashboard() {
           </div>
         </section>
       )}
-
-      <SidecarCapabilityTest imageSrc={imageSrc} sidecarSrc={sidecarSrc} />
     </div>
   );
 }
