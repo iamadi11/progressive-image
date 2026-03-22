@@ -16,9 +16,10 @@ export interface StrategyMetrics {
 
 export interface ComparisonCardProps {
   strategy: 'sidecar' | 'native' | 'blurhash' | 'lqip' | 'progressive-jpeg';
+  strategyId: string;
   label: string;
   description: string;
-  onMetrics?: (metrics: StrategyMetrics) => void;
+  onMetrics?: (strategyId: string, metrics: StrategyMetrics) => void;
   loadTrigger: number;
   width?: number;
   height?: number;
@@ -38,6 +39,7 @@ const LQIP_PLACEHOLDER =
 
 export function ComparisonCard({
   strategy,
+  strategyId,
   label,
   description,
   onMetrics,
@@ -57,16 +59,15 @@ export function ComparisonCard({
     }
   }, [loadTrigger]);
 
-  const reportMetrics = useCallback(
-    (update: Partial<StrategyMetrics>) => {
-      setMetrics((prev) => {
-        const next = { ...prev, ...update };
-        onMetrics?.(next);
-        return next;
-      });
-    },
-    [onMetrics]
-  );
+  const reportMetrics = useCallback((update: Partial<StrategyMetrics>) => {
+    setMetrics((prev) => ({ ...prev, ...update }));
+  }, []);
+
+  // Sync metrics to parent in effect to avoid setState-in-render (onMetrics
+  // updates ComparisonDashboard while ComparisonCard is rendering).
+  useEffect(() => {
+    onMetrics?.(strategyId, metrics);
+  }, [strategyId, metrics, onMetrics]);
 
   const handleSidecarPhase = useCallback(
     (phase: string) => {

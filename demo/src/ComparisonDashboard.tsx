@@ -71,6 +71,7 @@ export function ComparisonDashboard() {
     setAllMetrics((prev) => ({ ...prev, [strategyId]: metrics }));
   }, []);
 
+
   return (
     <div style={{ padding: 24, maxWidth: 1400, margin: '0 auto' }}>
       <h1>Loading strategy comparison</h1>
@@ -122,10 +123,11 @@ export function ComparisonDashboard() {
           <ComparisonCard
             key={s.id}
             strategy={s.id}
+            strategyId={s.id}
             label={s.label}
             description={s.description}
             loadTrigger={loadTrigger}
-            onMetrics={(m) => handleMetrics(s.id, m)}
+            onMetrics={handleMetrics}
           />
         ))}
       </div>
