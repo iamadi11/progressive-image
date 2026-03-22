@@ -23,13 +23,23 @@ export interface ProgressiveImgProps {
   onError?: (err: Error) => void;
 }
 
+function deriveSidecarSrc(src: string): string {
+  const match = src.match(/^([^?#]*)(\?[^#]*)?(#.*)?$/);
+  if (!match) return `${src}.sidecar`;
+
+  const pathname = match[1] ?? src;
+  const query = match[2] ?? '';
+  const hash = match[3] ?? '';
+  return `${pathname}.sidecar${query}${hash}`;
+}
+
 export function ProgressiveImg({
   src,
   alt,
   placeholder,
   width,
   height,
-  sidecarSrc = `${src}.sidecar`,
+  sidecarSrc,
   className,
   style,
   loaderOptions,
@@ -54,6 +64,10 @@ export function ProgressiveImg({
     () => placeholder ?? FALLBACK_PLACEHOLDER(width, height),
     [placeholder, width, height]
   );
+  const resolvedSidecarSrc = useMemo(
+    () => sidecarSrc ?? deriveSidecarSrc(src),
+    [sidecarSrc, src]
+  );
 
   useEffect(() => {
     if (!isInView || !imgReady || !imgRef.current) return;
@@ -65,7 +79,7 @@ export function ProgressiveImg({
     img.width = width;
     img.height = height;
 
-    loadProgressive(img, src, sidecarSrc, {
+    loadProgressive(img, src, resolvedSidecarSrc, {
       ...loaderOptions,
       onPhase: (p) => {
         if (loadId !== loadIdRef.current) return;
@@ -82,7 +96,7 @@ export function ProgressiveImg({
         if (loadId !== loadIdRef.current) return;
         onError?.(err);
       });
-  }, [isInView, imgReady, src, sidecarSrc, resolvedPlaceholder, width, height, loaderOptions, onLoad, onError]);
+  }, [isInView, imgReady, src, resolvedSidecarSrc, resolvedPlaceholder, width, height, loaderOptions, onLoad, onError]);
 
   useEffect(() => {
     if (eager) return;

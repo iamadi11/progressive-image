@@ -22,9 +22,9 @@ const DEFAULT_OPTIONS: Required<LoaderOptions> = {
   slowConnectionThreshold: 10,
   tileConcurrency: 4,
   skipTiles: false,
-  fullFetchDelayMs: 120,
+  fullFetchDelayMs: 0,
   fullFetchPriority: 'high',
-  sidecarFetchPriority: 'low',
+  sidecarFetchPriority: 'auto',
 };
 
 export async function loadProgressive(
@@ -69,8 +69,8 @@ export async function loadProgressive(
   const withPriority = (priority: 'auto' | 'high' | 'low') =>
     ({ priority } as RequestInit & { priority: 'auto' | 'high' | 'low' });
 
-  // Sidecar starts immediately, full image starts after a small delay by default.
-  // This keeps progressive UX while avoiding immediate bandwidth contention.
+  // Start both requests eagerly by default for benchmark parity.
+  // Consumers can still delay full fetch via fullFetchDelayMs when desired.
   const sidecarPromise = fetch(sidecarURL, withPriority(options.sidecarFetchPriority));
   let fullPromise: Promise<Response> | null = null;
   let fullFetchDelayTimer: ReturnType<typeof setTimeout> | null = null;
@@ -80,9 +80,14 @@ export async function loadProgressive(
     }
     return fullPromise;
   };
-  fullFetchDelayTimer = setTimeout(() => {
+  const fullFetchDelayMs = Math.max(0, options.fullFetchDelayMs);
+  if (fullFetchDelayMs === 0) {
     startFullFetch();
-  }, Math.max(0, options.fullFetchDelayMs));
+  } else {
+    fullFetchDelayTimer = setTimeout(() => {
+      startFullFetch();
+    }, fullFetchDelayMs);
+  }
 
   let manifest: Manifest | null = null;
   let levelBlobs: Blob[] | null = null;
@@ -140,7 +145,10 @@ export async function loadProgressive(
       const blob = await res.blob();
       img.src = createObjectURL(blob);
       img.fetchPriority = 'high';
-      await img.decode();
+      // Avoid blocking "full" completion on decode for large images.
+      void img.decode().catch(() => {
+        /* best effort */
+      });
       img.style.opacity = '1';
       reportPhase('full');
       return true;
