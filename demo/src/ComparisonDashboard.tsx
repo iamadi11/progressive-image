@@ -6,7 +6,7 @@ import './fetchSetup';
 import { useState, useCallback } from 'react';
 import { ComparisonCard } from './ComparisonCard';
 import { SidecarCapabilityTest } from './SidecarCapabilityTest';
-import { setFetchDelay, setComparisonForceTilesForFetch } from './fetchSetup';
+import { setThrottleKbps, setComparisonForceTilesForFetch } from './fetchSetup';
 import type { StrategyMetrics } from './ComparisonCard';
 
 const STRATEGIES: Array<{
@@ -43,13 +43,13 @@ const STRATEGIES: Array<{
 
 export function ComparisonDashboard() {
   const [loadTrigger, setLoadTrigger] = useState(0);
-  const [throttleMs, setThrottleMs] = useState(0);
+  const [throttleKbps, setThrottleKbpsState] = useState(0);
   const [forceTilesPath, setForceTilesPath] = useState(false);
   const [allMetrics, setAllMetrics] = useState<Record<string, StrategyMetrics>>({});
 
-  const updateThrottle = useCallback((ms: number) => {
-    setFetchDelay(ms);
-    setThrottleMs(ms);
+  const updateThrottle = useCallback((kbps: number) => {
+    setThrottleKbps(kbps);
+    setThrottleKbpsState(kbps);
   }, []);
 
   const handleStartComparison = useCallback(() => {
@@ -67,8 +67,8 @@ export function ComparisonDashboard() {
     <div style={{ padding: 24, maxWidth: 1400, margin: '0 auto' }}>
       <h1>Loading strategy comparison</h1>
       <p style={{ color: '#999', marginBottom: 24 }}>
-        Compare Sidecar progressive loading against native approaches. Use the throttle to simulate
-        slow 4G.
+        Compare Sidecar progressive loading against native approaches. Use bandwidth throttle to
+        simulate slow network.
       </p>
 
       <section style={{ marginBottom: 24 }}>
@@ -96,17 +96,17 @@ export function ComparisonDashboard() {
             Start comparison
           </button>
           <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span>Delay per request (ms):</span>
+            <span>Bandwidth (Kbps, 0=off):</span>
             <input
               type="range"
               min={0}
-              max={1000}
-              step={50}
-              value={throttleMs}
+              max={500}
+              step={25}
+              value={throttleKbps}
               onChange={(e) => updateThrottle(Number(e.target.value))}
               style={{ width: 120 }}
             />
-            <span>{throttleMs}</span>
+            <span>{throttleKbps}</span>
           </label>
         </div>
       </section>

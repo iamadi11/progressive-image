@@ -1,13 +1,44 @@
 /**
- * Global fetch interception for demo: throttle and force-tiles-path simulation.
+ * Global fetch interception for demo: bandwidth throttling and force-tiles-path simulation.
+ * Throttles response body transfer to simulate slow network (Kbps) instead of fixed delay.
  */
 
-let fetchDelay = 0;
+let throttleKbps = 0;
 let comparisonForceTiles = false;
 let capabilityForceTiles = false;
 const getForceTilesActive = () => comparisonForceTiles || capabilityForceTiles;
 
 const originalFetch = window.fetch.bind(window);
+
+function throttleResponse(res: Response, kbps: number): Response {
+  if (!res.body || kbps <= 0) return res;
+  const bytesPerMs = (kbps * 1024) / 8 / 1000;
+  const reader = res.body.getReader();
+  const throttledStream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) {
+            controller.close();
+            break;
+          }
+          controller.enqueue(value);
+          const chunkSize = value?.length ?? 0;
+          const delayMs = chunkSize / bytesPerMs;
+          if (delayMs > 0) await new Promise((r) => setTimeout(r, delayMs));
+        }
+      } catch (e) {
+        controller.error(e);
+      }
+    },
+  });
+  return new Response(throttledStream, {
+    headers: res.headers,
+    status: res.status,
+    statusText: res.statusText,
+  });
+}
 
 window.fetch = function (
   input: RequestInfo | URL,
@@ -31,22 +62,32 @@ window.fetch = function (
     return originalFetch(realUrl, init);
   }
 
-  if (fetchDelay > 0) {
-    return new Promise((resolve, reject) => {
-      setTimeout(() => {
-        originalFetch(input, init).then(resolve).catch(reject);
-      }, fetchDelay);
-    });
-  }
-  return originalFetch(input, init);
+  return originalFetch(input, init).then((res) => {
+    if (throttleKbps > 0) return throttleResponse(res, throttleKbps);
+    return res;
+  });
 };
 
-export function setFetchDelay(ms: number) {
-  fetchDelay = ms;
+export function setThrottleKbps(kbps: number) {
+  throttleKbps = Math.max(0, kbps);
 }
 
+export function getThrottleKbps() {
+  return throttleKbps;
+}
+
+/** @deprecated Use setThrottleKbps instead. Kept for backwards compat. */
+export function setFetchDelay(ms: number) {
+  if (ms > 0) {
+    setThrottleKbps(50);
+  } else {
+    setThrottleKbps(0);
+  }
+}
+
+/** @deprecated Use getThrottleKbps instead. */
 export function getFetchDelay() {
-  return fetchDelay;
+  return throttleKbps > 0 ? 500 : 0;
 }
 
 export function setForceTilesPathForFetch(value: boolean) {

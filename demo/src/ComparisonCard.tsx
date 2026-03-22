@@ -116,6 +116,7 @@ function ImgViaFetch({
         const url = URL.createObjectURL(blob);
         blobUrlRef.current = url;
         img.style.opacity = '0';
+        img.src = url;
         setDisplaySrc(url);
         setIsPlaceholder(false);
         if (fetchpriority) img.fetchPriority = fetchpriority;
@@ -138,8 +139,7 @@ function ImgViaFetch({
         } catch {
           onFull();
         }
-        blobUrlRef.current = null;
-        URL.revokeObjectURL(url);
+        // Do NOT revoke here - img is still displaying the blob; revoke only in cleanup
       } catch {
         img.src = src;
         img.onload = () => onFull();
