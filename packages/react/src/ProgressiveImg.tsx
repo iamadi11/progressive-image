@@ -61,6 +61,7 @@ export function ProgressiveImg({
       onPhase: (p) => {
         if (loaderAborted.current) return;
         setPhase(p);
+        loaderOptions?.onPhase?.(p);
       },
       onFrame: loaderOptions?.onFrame,
     })
