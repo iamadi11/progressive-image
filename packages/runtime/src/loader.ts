@@ -57,6 +57,9 @@ export async function loadProgressive(
 
   img.style.transition = 'opacity 0.15s ease-out';
 
+  // Prefetch full image in parallel with sidecar so it's ready (or cached) when we need it
+  const fullImagePromise = fetch(imageURL);
+
   let res: Response;
   try {
     res = await fetch(sidecarURL);
@@ -139,7 +142,19 @@ export async function loadProgressive(
 
     reportPhase('full');
     img.style.opacity = '0';
-    img.src = imageURL;
+    let fullUrl: string;
+    try {
+      const fullRes = await fullImagePromise;
+      if (fullRes.ok) {
+        const blob = await fullRes.blob();
+        fullUrl = createObjectURL(blob);
+      } else {
+        fullUrl = imageURL;
+      }
+    } catch {
+      fullUrl = imageURL;
+    }
+    img.src = fullUrl;
     img.fetchPriority = 'high';
     await img.decode();
     img.style.opacity = '1';
