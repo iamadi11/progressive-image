@@ -80,6 +80,7 @@ export function sidecarPlugin(opts?: ViteSidecarOptions): Plugin {
 
       const hasProgressiveImg = importRegex.test(code);
       let modified = code;
+      let didReplace = false;
 
       const imgMatches: Array<{ full: string; src: string; rest: string }> = [];
       let match;
@@ -87,9 +88,6 @@ export function sidecarPlugin(opts?: ViteSidecarOptions): Plugin {
         imgMatches.push({ full: match[0], src: match[1], rest: match[2] });
       }
 
-      if (imgMatches.length === 0) return null;
-
-      let didReplace = false;
       for (const { full, src, rest } of imgMatches) {
         const normalized = src.startsWith('/') ? src : '/' + src.replace(/^\.\//, '');
         const entry = Array.from(processedImages.values()).find(
@@ -110,8 +108,32 @@ export function sidecarPlugin(opts?: ViteSidecarOptions): Plugin {
         didReplace = true;
       }
 
+      // Replace sidecar paths with hashed asset URLs so ProgressiveImg uses the
+      // preloaded resource. Handles both sidecarSrc="/images/X.sidecar" and
+      // const VAR = '/images/X.sidecar' (so sidecarSrc={VAR} gets the right URL).
+      for (const entry of processedImages.values()) {
+        const sidecarBuf = readFileSync(entry.result.sidecarPath);
+        const hash = Buffer.from(sidecarBuf).toString('base64').slice(0, 8).replace(/[/+=]/g, 'a');
+        const sidecarUrl = `/assets/image-${hash}.sidecar`;
+        const publicSidecarPath = entry.srcPath.replace(/\.(jpg|jpeg)$/i, '.sidecar');
+        const escaped = publicSidecarPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+        const sidecarSrcRegex = new RegExp(`sidecarSrc=["']${escaped}["']`, 'g');
+        const beforeSrc = modified;
+        modified = modified.replace(sidecarSrcRegex, `sidecarSrc="${sidecarUrl}"`);
+        if (modified !== beforeSrc) didReplace = true;
+
+        const constRegex = new RegExp(
+          `(const\\s+\\w+\\s*=\\s*)["']${escaped}["']`,
+          'g'
+        );
+        const beforeConst = modified;
+        modified = modified.replace(constRegex, `$1"${sidecarUrl}"`);
+        if (modified !== beforeConst) didReplace = true;
+      }
+
       if (!didReplace) return null;
-      if (!hasProgressiveImg) {
+      if (!hasProgressiveImg && imgMatches.length > 0) {
         modified = `import { ProgressiveImg } from '@sidecar/react';\n` + modified;
       }
 
