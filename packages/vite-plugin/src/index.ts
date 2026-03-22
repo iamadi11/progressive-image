@@ -56,14 +56,16 @@ export function sidecarPlugin(opts?: ViteSidecarOptions): Plugin {
 
           const sidecarBuf = readFileSync(result.sidecarPath);
           const hash = Buffer.from(sidecarBuf).toString('base64').slice(0, 8).replace(/[/+=]/g, 'a');
-          const sidecarName = `image-${hash}.sidecar`;
-          this.emitFile({
-            type: 'asset',
-            name: sidecarName,
-            source: sidecarBuf,
-            fileName: `assets/${sidecarName}`,
-          });
           const basename = result.mainJpegPath.split('/').pop()?.replace(/\.(jpg|jpeg)$/i, '') ?? 'image';
+          if (config.command === 'build') {
+            const sidecarName = `image-${hash}.sidecar`;
+            this.emitFile({
+              type: 'asset',
+              name: sidecarName,
+              source: sidecarBuf,
+              fileName: `assets/${sidecarName}`,
+            });
+          }
           const stableSidecarPath = join(outputDir, `${basename}.sidecar`);
           writeFileSync(stableSidecarPath, sidecarBuf);
         } catch (err) {
@@ -88,6 +90,8 @@ export function sidecarPlugin(opts?: ViteSidecarOptions): Plugin {
         imgMatches.push({ full: match[0], src: match[1], rest: match[2] });
       }
 
+      const isBuild = config.command === 'build';
+
       for (const { full, src, rest } of imgMatches) {
         const normalized = src.startsWith('/') ? src : '/' + src.replace(/^\.\//, '');
         const entry = Array.from(processedImages.values()).find(
@@ -99,7 +103,7 @@ export function sidecarPlugin(opts?: ViteSidecarOptions): Plugin {
         const sidecarBuf = readFileSync(result.sidecarPath);
         const hash = Buffer.from(sidecarBuf).toString('base64').slice(0, 8).replace(/[/+=]/g, 'a');
         const placeholder = result.level0DataURI;
-        const sidecarUrl = `/assets/image-${hash}.sidecar`;
+        const sidecarUrl = isBuild ? `/assets/image-${hash}.sidecar` : entry.srcPath.replace(/\.(jpg|jpeg)$/i, '.sidecar');
 
         const eagerAttr = /data-eager/.test(rest) ? ' eager={true}' : '';
         const restClean = rest.replace(/\s*data-eager\s*/g, ' ');
@@ -108,28 +112,30 @@ export function sidecarPlugin(opts?: ViteSidecarOptions): Plugin {
         didReplace = true;
       }
 
-      // Replace sidecar paths with hashed asset URLs so ProgressiveImg uses the
-      // preloaded resource. Handles both sidecarSrc="/images/X.sidecar" and
-      // const VAR = '/images/X.sidecar' (so sidecarSrc={VAR} gets the right URL).
-      for (const entry of processedImages.values()) {
-        const sidecarBuf = readFileSync(entry.result.sidecarPath);
-        const hash = Buffer.from(sidecarBuf).toString('base64').slice(0, 8).replace(/[/+=]/g, 'a');
-        const sidecarUrl = `/assets/image-${hash}.sidecar`;
-        const publicSidecarPath = entry.srcPath.replace(/\.(jpg|jpeg)$/i, '.sidecar');
-        const escaped = publicSidecarPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      // In build mode: replace sidecar paths with hashed asset URLs so
+      // ProgressiveImg uses the preloaded resource. In serve mode, leave
+      // /images/X.sidecar as-is (served from public folder).
+      if (isBuild) {
+        for (const entry of processedImages.values()) {
+          const sidecarBuf = readFileSync(entry.result.sidecarPath);
+          const hash = Buffer.from(sidecarBuf).toString('base64').slice(0, 8).replace(/[/+=]/g, 'a');
+          const sidecarUrl = `/assets/image-${hash}.sidecar`;
+          const publicSidecarPath = entry.srcPath.replace(/\.(jpg|jpeg)$/i, '.sidecar');
+          const escaped = publicSidecarPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-        const sidecarSrcRegex = new RegExp(`sidecarSrc=["']${escaped}["']`, 'g');
-        const beforeSrc = modified;
-        modified = modified.replace(sidecarSrcRegex, `sidecarSrc="${sidecarUrl}"`);
-        if (modified !== beforeSrc) didReplace = true;
+          const sidecarSrcRegex = new RegExp(`sidecarSrc=["']${escaped}["']`, 'g');
+          const beforeSrc = modified;
+          modified = modified.replace(sidecarSrcRegex, `sidecarSrc="${sidecarUrl}"`);
+          if (modified !== beforeSrc) didReplace = true;
 
-        const constRegex = new RegExp(
-          `(const\\s+\\w+\\s*=\\s*)["']${escaped}["']`,
-          'g'
-        );
-        const beforeConst = modified;
-        modified = modified.replace(constRegex, `$1"${sidecarUrl}"`);
-        if (modified !== beforeConst) didReplace = true;
+          const constRegex = new RegExp(
+            `(const\\s+\\w+\\s*=\\s*)["']${escaped}["']`,
+            'g'
+          );
+          const beforeConst = modified;
+          modified = modified.replace(constRegex, `$1"${sidecarUrl}"`);
+          if (modified !== beforeConst) didReplace = true;
+        }
       }
 
       if (!didReplace) return null;
@@ -141,7 +147,11 @@ export function sidecarPlugin(opts?: ViteSidecarOptions): Plugin {
     },
 
     transformIndexHtml(html) {
-      if (opts?.injectPreload !== false && processedImages.size > 0) {
+      if (
+        config.command === 'build' &&
+        opts?.injectPreload !== false &&
+        processedImages.size > 0
+      ) {
         const preloads = Array.from(processedImages.values())
           .map((c) => {
             const sidecarBuf = readFileSync(c.result.sidecarPath);
