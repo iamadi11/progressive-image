@@ -6,7 +6,7 @@
  * - Error handling
  */
 
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { ProgressiveImg } from '@sidecar/react';
 import { setForceTilesPathForFetch } from './fetchSetup';
 
@@ -30,7 +30,10 @@ export function SidecarCapabilityTest() {
 
   const handlePhase = useCallback((p: string) => {
     setPhase(p);
-    setPhases((prev) => [...prev, p]);
+    setPhases((prev) => {
+      if (prev[prev.length - 1] === p) return prev;
+      return [...prev, p];
+    });
   }, []);
 
   const handleFrame = useCallback((f: { phase: string; elapsed: number }) => {
@@ -57,6 +60,16 @@ export function SidecarCapabilityTest() {
     setMetrics({});
     setLazyLoaded(false);
   }, []);
+
+  const loaderOptions = useMemo(
+    () => ({
+      onPhase: handlePhase,
+      onFrame: handleFrame,
+      skipTiles: false,
+      slowConnectionThreshold: 10,
+    }),
+    [handlePhase, handleFrame]
+  );
 
   return (
     <section
@@ -119,12 +132,7 @@ export function SidecarCapabilityTest() {
                 height={250}
                 eager={false}
                 rootMargin="100px"
-                loaderOptions={{
-                  onPhase: handlePhase,
-                  onFrame: handleFrame,
-                  skipTiles: false,
-                  slowConnectionThreshold: 10,
-                }}
+                loaderOptions={loaderOptions}
                 onLoad={handleLoad}
                 onError={handleError}
                 style={{
