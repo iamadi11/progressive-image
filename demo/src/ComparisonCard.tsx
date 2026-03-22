@@ -3,7 +3,7 @@
  * Renders one strategy with its image and metrics.
  */
 
-import React, { useRef, useState, useCallback, useEffect } from 'react';
+import React, { useRef, useState, useCallback, useEffect, useMemo } from 'react';
 import { ProgressiveImg } from '@sidecar/react';
 
 const HERO_IMAGE = '/images/test.jpg';
@@ -96,6 +96,11 @@ export function ComparisonCard({
     setLoaded(true);
   }, [reportMetrics]);
 
+  const sidecarLoaderOptions = useMemo(
+    () => ({ onPhase: handleSidecarPhase }),
+    [handleSidecarPhase]
+  );
+
   if (loadTrigger === 0) {
     return (
       <div
@@ -166,9 +171,7 @@ export function ComparisonCard({
             width={width}
             height={height}
             eager
-            loaderOptions={{
-              onPhase: handleSidecarPhase,
-            }}
+            loaderOptions={sidecarLoaderOptions}
             onLoad={handleSidecarLoad}
             style={imgStyle}
           />
