@@ -43,11 +43,23 @@ const STRATEGIES: Array<{
 
 type ThrottlePreset = keyof typeof THROTTLE_PRESETS;
 
+const IMAGE_SIZES = [
+  { value: 'test.jpg', label: '60KB (default)' },
+  { value: 'test-0.5mb.jpg', label: '0.5 MB' },
+  { value: 'test-1mb.jpg', label: '1 MB' },
+  { value: 'test-2mb.jpg', label: '2 MB' },
+  { value: 'test-5mb.jpg', label: '5 MB' },
+];
+
 export function ComparisonDashboard() {
   const [loadTrigger, setLoadTrigger] = useState(0);
   const [throttlePreset, setThrottlePresetState] = useState<ThrottlePreset>('off');
   const [forceTilesPath, setForceTilesPath] = useState(false);
+  const [imageSize, setImageSize] = useState('test.jpg');
   const [allMetrics, setAllMetrics] = useState<Record<string, StrategyMetrics>>({});
+
+  const imageSrc = `/images/${imageSize}`;
+  const sidecarSrc = `/images/${imageSize.replace(/\.(jpg|jpeg)$/i, '')}.sidecar`;
 
   const updateThrottle = useCallback((preset: ThrottlePreset) => {
     setThrottlePreset(preset);
@@ -109,6 +121,20 @@ export function ComparisonDashboard() {
               <option value="slow3g">Slow 3G (400 Kbps, 2s RTT)</option>
             </select>
           </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span>Image size:</span>
+            <select
+              value={imageSize}
+              onChange={(e) => setImageSize(e.target.value)}
+              style={{ padding: '6px 10px', fontSize: 14, cursor: 'pointer' }}
+            >
+              {IMAGE_SIZES.map((s) => (
+                <option key={s.value} value={s.value}>
+                  {s.label}
+                </option>
+              ))}
+            </select>
+          </label>
         </div>
       </section>
 
@@ -129,6 +155,8 @@ export function ComparisonDashboard() {
             loadTrigger={loadTrigger}
             onMetrics={handleMetrics}
             forceTilesPath={s.id === 'sidecar' ? forceTilesPath : false}
+            imageSrc={imageSrc}
+            sidecarSrc={sidecarSrc}
           />
         ))}
       </div>
@@ -199,7 +227,7 @@ export function ComparisonDashboard() {
         </section>
       )}
 
-      <SidecarCapabilityTest />
+      <SidecarCapabilityTest imageSrc={imageSrc} sidecarSrc={sidecarSrc} />
     </div>
   );
 }

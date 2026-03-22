@@ -6,9 +6,6 @@
 import React, { useRef, useState, useCallback, useEffect, useMemo } from 'react';
 import { ProgressiveImg } from '@sidecar/react';
 
-const HERO_IMAGE = '/images/test.jpg';
-const SIDECAR_SRC = '/images/test.sidecar';
-
 export interface StrategyMetrics {
   /** Time (ms) to first pixel / placeholder visible */
   firstPixel?: number;
@@ -40,6 +37,10 @@ export interface ComparisonCardProps {
   loaderOverrides?: { skipTiles?: boolean; slowConnectionThreshold?: number };
   /** When true, main image fetch is forced to fail to test pyramid+tiles path */
   forceTilesPath?: boolean;
+  /** Image URL (default: /images/test.jpg) */
+  imageSrc?: string;
+  /** Sidecar URL (default: /images/test.sidecar) */
+  sidecarSrc?: string;
 }
 
 const BLURHASH_PLACEHOLDER =
@@ -201,6 +202,9 @@ function ImgViaFetch({
   );
 }
 
+const DEFAULT_IMAGE_SRC = '/images/test.jpg';
+const DEFAULT_SIDECAR_SRC = '/images/test.sidecar';
+
 export function ComparisonCard({
   strategy,
   strategyId,
@@ -212,7 +216,10 @@ export function ComparisonCard({
   height = 175,
   loaderOverrides,
   forceTilesPath = false,
+  imageSrc = DEFAULT_IMAGE_SRC,
+  sidecarSrc = DEFAULT_SIDECAR_SRC,
 }: ComparisonCardProps) {
+  const imageFilename = imageSrc.split('/').pop() ?? '';
   const t0Ref = useRef<number>(0);
   const [metrics, setMetrics] = useState<StrategyMetrics>({});
   const phasesRef = useRef<Set<string>>(new Set());
@@ -279,7 +286,7 @@ export function ComparisonCard({
     try {
       const entries = performance.getEntriesByType('resource');
       const sidecar = entries.find((e) => e.name.includes('.sidecar'));
-      const img = entries.find((e) => e.name === HERO_IMAGE || e.name.includes('test.jpg'));
+      const img = entries.find((e) => (typeof e.name === 'string' && e.name.includes(imageFilename)));
       const transferSize = (e: PerformanceResourceTiming) =>
         e.transferSize > 0 ? e.transferSize : (e as PerformanceResourceTiming & { encodedBodySize?: number }).encodedBodySize ?? 0;
       reportMetrics({
@@ -290,7 +297,7 @@ export function ComparisonCard({
     } catch {
       reportMetrics({ full: elapsed });
     }
-  }, [reportMetrics]);
+  }, [reportMetrics, imageFilename]);
 
   const handleSidecarError = useCallback((err: Error) => {
     console.error('[Sidecar] load failed:', err);
@@ -300,7 +307,7 @@ export function ComparisonCard({
     const elapsed = performance.now() - t0Ref.current;
     try {
       const entries = performance.getEntriesByType('resource');
-      const img = entries.find((e) => e.name === HERO_IMAGE || e.name.includes('test.jpg'));
+      const img = entries.find((e) => (typeof e.name === 'string' && e.name.includes(imageFilename)));
       const transferSize = (e: PerformanceResourceTiming) =>
         e.transferSize > 0 ? e.transferSize : (e as PerformanceResourceTiming & { encodedBodySize?: number }).encodedBodySize ?? 0;
       reportMetrics({
@@ -310,7 +317,7 @@ export function ComparisonCard({
     } catch {
       reportMetrics({ full: elapsed });
     }
-  }, [reportMetrics]);
+  }, [reportMetrics, imageFilename]);
 
   const handlePlaceholderLoad = useCallback(() => {
     const elapsed = performance.now() - t0Ref.current;
@@ -391,8 +398,8 @@ export function ComparisonCard({
       <div style={imageContainerStyle}>
         {strategy === 'sidecar' && (
           <ProgressiveImg
-            src={forceTilesPath ? `${HERO_IMAGE}?forceTiles=1` : HERO_IMAGE}
-            sidecarSrc={SIDECAR_SRC}
+            src={forceTilesPath ? `${imageSrc}?forceTiles=1` : imageSrc}
+            sidecarSrc={sidecarSrc}
             alt={label}
             width={width}
             height={height}
@@ -405,7 +412,7 @@ export function ComparisonCard({
         )}
         {strategy === 'native' && (
           <img
-            src={HERO_IMAGE}
+            src={imageSrc}
             alt={label}
             width={width}
             height={height}
@@ -416,7 +423,7 @@ export function ComparisonCard({
         )}
         {strategy === 'blurhash' && (
           <ImgViaFetch
-            src={HERO_IMAGE}
+            src={imageSrc}
             placeholder={BLURHASH_PLACEHOLDER}
             placeholderFilter="blur(20px)"
             width={width}
@@ -430,7 +437,7 @@ export function ComparisonCard({
         )}
         {strategy === 'lqip' && (
           <ImgViaFetch
-            src={HERO_IMAGE}
+            src={imageSrc}
             placeholder={LQIP_PLACEHOLDER}
             width={width}
             height={height}
@@ -443,7 +450,7 @@ export function ComparisonCard({
         )}
         {strategy === 'progressive-jpeg' && (
           <img
-            src={HERO_IMAGE}
+            src={imageSrc}
             alt={label}
             width={width}
             height={height}

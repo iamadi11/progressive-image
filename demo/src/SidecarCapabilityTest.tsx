@@ -10,10 +10,13 @@ import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { ProgressiveImg } from '@sidecar/react';
 import { setForceTilesPathForFetch } from './fetchSetup';
 
-const HERO_IMAGE = '/images/test.jpg';
-const SIDECAR_SRC = '/images/test.sidecar';
-
-export function SidecarCapabilityTest() {
+export function SidecarCapabilityTest({
+  imageSrc = '/images/test.jpg',
+  sidecarSrc = '/images/test.sidecar',
+}: {
+  imageSrc?: string;
+  sidecarSrc?: string;
+} = {}) {
   const [phase, setPhase] = useState<string>('—');
   const [phases, setPhases] = useState<string[]>([]);
   const [tilesPathEnabled, setTilesPathEnabled] = useState(false);
@@ -127,8 +130,8 @@ export function SidecarCapabilityTest() {
               }}
             >
               <ProgressiveImg
-                src={tilesPathEnabled ? `${HERO_IMAGE}?forceTiles=1` : HERO_IMAGE}
-                sidecarSrc={SIDECAR_SRC}
+                src={tilesPathEnabled ? `${imageSrc}?forceTiles=1` : imageSrc}
+                sidecarSrc={sidecarSrc}
                 alt="Capability test"
                 width={400}
                 height={250}
