@@ -54,6 +54,137 @@ const LQIP_PLACEHOLDER =
     '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"><rect fill="#999" width="1" height="1"/></svg>'
   );
 
+const TRANSPARENT_PIXEL =
+  'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+
+/**
+ * Loads image via fetch() so the demo throttle applies. Use for native/blurhash/lqip/progressive
+ * strategies to ensure fair comparison with Sidecar (which uses fetch for sidecar + image).
+ */
+function ImgViaFetch({
+  src,
+  placeholder,
+  placeholderFilter,
+  width,
+  height,
+  alt,
+  style,
+  fetchpriority,
+  onFirstPixel,
+  onFull,
+  loadTrigger,
+}: {
+  src: string;
+  placeholder?: string;
+  placeholderFilter?: string;
+  width: number;
+  height: number;
+  alt: string;
+  style: React.CSSProperties;
+  fetchpriority?: 'high' | 'low' | 'auto';
+  onFirstPixel?: () => void;
+  onFull: (imageBytes?: number) => void;
+  loadTrigger: number;
+}) {
+  const imgRef = useRef<HTMLImageElement>(null);
+  const blobUrlRef = useRef<string | null>(null);
+  const [displaySrc, setDisplaySrc] = useState<string>(
+    placeholder ?? TRANSPARENT_PIXEL
+  );
+  const [isPlaceholder, setIsPlaceholder] = useState(!!placeholder);
+
+  useEffect(() => {
+    if (loadTrigger <= 0) return;
+    setDisplaySrc(placeholder ?? TRANSPARENT_PIXEL);
+    setIsPlaceholder(!!placeholder);
+  }, [loadTrigger, placeholder]);
+
+  useEffect(() => {
+    if (loadTrigger <= 0) return;
+    const img = imgRef.current;
+    if (!img) return;
+
+    const loadFull = async () => {
+      try {
+        const res = await fetch(src);
+        if (!res.ok) {
+          img.src = src;
+          img.onload = () => onFull();
+          return;
+        }
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        blobUrlRef.current = url;
+        img.style.opacity = '0';
+        setDisplaySrc(url);
+        setIsPlaceholder(false);
+        if (fetchpriority) img.fetchPriority = fetchpriority;
+        await img.decode();
+        img.style.opacity = '1';
+        try {
+          const entries = performance.getEntriesByType('resource');
+          const r = entries.find(
+            (e) =>
+              e.name === src ||
+              (typeof e.name === 'string' && e.name.includes(src.split('/').pop() ?? ''))
+          );
+          const size =
+            r && 'transferSize' in r
+              ? (r as PerformanceResourceTiming).transferSize > 0
+                ? (r as PerformanceResourceTiming).transferSize
+                : (r as PerformanceResourceTiming & { encodedBodySize?: number }).encodedBodySize
+              : undefined;
+          onFull(size);
+        } catch {
+          onFull();
+        }
+        blobUrlRef.current = null;
+        URL.revokeObjectURL(url);
+      } catch {
+        img.src = src;
+        img.onload = () => onFull();
+      }
+    };
+
+    if (placeholder) {
+      const reportFirstPixel = () => onFirstPixel?.();
+      const onReady = () => {
+        reportFirstPixel();
+        loadFull();
+      };
+      if (img.complete) {
+        onReady();
+      } else {
+        img.addEventListener('load', onReady, { once: true });
+      }
+    } else {
+      onFirstPixel?.();
+      loadFull();
+    }
+
+    return () => {
+      const url = blobUrlRef.current;
+      if (url) URL.revokeObjectURL(url);
+    };
+  }, [loadTrigger, src, placeholder, fetchpriority, onFirstPixel, onFull]);
+
+  return (
+    <img
+      ref={imgRef}
+      src={displaySrc}
+      alt={alt}
+      width={width}
+      height={height}
+      style={{
+        ...style,
+        transition: 'opacity 0.15s ease-out',
+        filter: isPlaceholder && placeholderFilter ? placeholderFilter : undefined,
+      }}
+      {...(fetchpriority ? ({ fetchpriority } as React.ComponentProps<'img'>) : {})}
+    />
+  );
+}
+
 export function ComparisonCard({
   strategy,
   strategyId,
@@ -68,14 +199,12 @@ export function ComparisonCard({
 }: ComparisonCardProps) {
   const t0Ref = useRef<number>(0);
   const [metrics, setMetrics] = useState<StrategyMetrics>({});
-  const [loaded, setLoaded] = useState(false);
   const phasesRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     if (loadTrigger > 0) {
       t0Ref.current = performance.now();
       setMetrics({});
-      setLoaded(false);
       phasesRef.current = new Set();
     }
   }, [loadTrigger]);
@@ -130,7 +259,6 @@ export function ComparisonCard({
 
   const handleSidecarLoad = useCallback(() => {
     const elapsed = performance.now() - t0Ref.current;
-    setLoaded(true);
     // Collect resource timing for bytes
     try {
       const entries = performance.getEntriesByType('resource');
@@ -154,7 +282,6 @@ export function ComparisonCard({
 
   const handleImgLoad = useCallback(() => {
     const elapsed = performance.now() - t0Ref.current;
-    setLoaded(true);
     try {
       const entries = performance.getEntriesByType('resource');
       const img = entries.find((e) => e.name === HERO_IMAGE || e.name.includes('test.jpg'));
@@ -172,7 +299,6 @@ export function ComparisonCard({
   const handlePlaceholderLoad = useCallback(() => {
     const elapsed = performance.now() - t0Ref.current;
     reportMetrics({ firstPixel: elapsed });
-    setLoaded(true);
   }, [reportMetrics]);
 
   const sidecarLoaderOptions = useMemo(
@@ -262,47 +388,53 @@ export function ComparisonCard({
           />
         )}
         {strategy === 'native' && (
-          <img
+          <ImgViaFetch
             src={HERO_IMAGE}
-            alt={label}
             width={width}
             height={height}
-            {...({ fetchpriority: 'high' } as React.ComponentProps<'img'>)}
+            alt={label}
             style={imgStyle}
-            onLoad={handleImgLoad}
+            fetchpriority="high"
+            onFull={handleImgLoad}
+            loadTrigger={loadTrigger}
           />
         )}
         {strategy === 'blurhash' && (
-          <img
-            src={loaded ? HERO_IMAGE : BLURHASH_PLACEHOLDER}
-            alt={label}
+          <ImgViaFetch
+            src={HERO_IMAGE}
+            placeholder={BLURHASH_PLACEHOLDER}
+            placeholderFilter="blur(20px)"
             width={width}
             height={height}
-            onLoad={loaded ? handleImgLoad : handlePlaceholderLoad}
-            style={{
-              ...imgStyle,
-              filter: loaded ? 'none' : 'blur(20px)',
-            }}
+            alt={label}
+            style={imgStyle}
+            onFirstPixel={handlePlaceholderLoad}
+            onFull={handleImgLoad}
+            loadTrigger={loadTrigger}
           />
         )}
         {strategy === 'lqip' && (
-          <img
-            src={loaded ? HERO_IMAGE : LQIP_PLACEHOLDER}
-            alt={label}
+          <ImgViaFetch
+            src={HERO_IMAGE}
+            placeholder={LQIP_PLACEHOLDER}
             width={width}
             height={height}
-            onLoad={loaded ? handleImgLoad : handlePlaceholderLoad}
+            alt={label}
             style={imgStyle}
+            onFirstPixel={handlePlaceholderLoad}
+            onFull={handleImgLoad}
+            loadTrigger={loadTrigger}
           />
         )}
         {strategy === 'progressive-jpeg' && (
-          <img
+          <ImgViaFetch
             src={HERO_IMAGE}
-            alt={label}
             width={width}
             height={height}
+            alt={label}
             style={imgStyle}
-            onLoad={handleImgLoad}
+            onFull={handleImgLoad}
+            loadTrigger={loadTrigger}
           />
         )}
       </div>

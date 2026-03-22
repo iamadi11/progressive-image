@@ -2,7 +2,7 @@
  * Phase orchestrator for progressive image loading.
  */
 
-import { parseSidecar } from './parser.js';
+import { parseSidecar, type Manifest } from './parser.js';
 import { streamTiles } from './tiles.js';
 
 export interface LoaderOptions {
@@ -57,107 +57,133 @@ export async function loadProgressive(
 
   img.style.transition = 'opacity 0.15s ease-out';
 
-  // Fetch both in parallel; show full immediately when ready (skip pyramid when full is fast)
-  let sidecarRes: Response;
-  let fullRes: Response;
-  try {
-    [sidecarRes, fullRes] = await Promise.all([fetch(sidecarURL), fetch(imageURL)]);
-  } catch {
-    img.src = imageURL;
-    await img.decode();
-    revokeAll();
-    reportPhase('full');
-    return;
-  }
+  // Start both fetches; show pyramid as soon as sidecar is ready (don't wait for full)
+  const sidecarPromise = fetch(sidecarURL);
+  const fullPromise = fetch(imageURL);
 
-  if (!sidecarRes.ok) {
-    img.src = imageURL;
-    await img.decode();
-    revokeAll();
-    reportPhase('full');
-    return;
-  }
+  let manifest: Manifest | null = null;
+  let levelBlobs: Blob[] | null = null;
+  let showedFull = false;
 
-  const sidecarBuf = await sidecarRes.arrayBuffer();
-  let manifest;
-  let levelBlobs: Blob[];
-  try {
-    const parsed = parseSidecar(sidecarBuf);
-    manifest = parsed.manifest;
-    levelBlobs = parsed.levelBlobs;
-  } catch {
-    img.src = imageURL;
-    await img.decode();
-    revokeAll();
-    reportPhase('full');
-    return;
-  }
-
-  if (img.width === 0) img.width = manifest.width;
-  if (img.height === 0) img.height = manifest.height;
-
-  reportPhase('pyramid');
-
-  try {
-    if (fullRes.ok) {
-      // Full image ready; show it immediately (skip pyramid)
-      img.style.opacity = '0';
-      const blob = await fullRes.blob();
-      img.src = createObjectURL(blob);
-      img.fetchPriority = 'high';
-      await img.decode();
-      img.style.opacity = '1';
-      reportPhase('full');
-    } else {
-      // Full fetch failed; run pyramid then fallback to imageURL
-      for (let i = 1; i < levelBlobs.length; i++) {
-        const blob = levelBlobs[i];
-        const url = createObjectURL(blob);
-        await img.decode();
-        await new Promise<void>((r) => requestAnimationFrame(() => r()));
+  const processSidecar = async (): Promise<boolean> => {
+    let sidecarRes: Response;
+    try {
+      sidecarRes = await sidecarPromise;
+    } catch {
+      return false;
+    }
+    if (!sidecarRes.ok) return false;
+    const sidecarBuf = await sidecarRes.arrayBuffer();
+    try {
+      const parsed = parseSidecar(sidecarBuf);
+      manifest = parsed.manifest;
+      levelBlobs = parsed.levelBlobs;
+      if (img.width === 0) img.width = manifest.width;
+      if (img.height === 0) img.height = manifest.height;
+      if (!showedFull && levelBlobs.length > 1) {
+        reportPhase('pyramid');
+        const url = createObjectURL(levelBlobs[1]);
         img.style.opacity = '0';
         img.src = url;
         await img.decode();
         img.style.opacity = '1';
         options.onFrame?.({ phase: 'pyramid', elapsed: performance.now() - startTime });
       }
+      return true;
+    } catch {
+      return false;
+    }
+  };
 
-      const connection = (navigator as Navigator & { connection?: { downlink?: number } })
-        .connection;
-      const downlinkMbps = connection?.downlink ?? 0;
-      const isSlowConnection =
-        connection === undefined || downlinkMbps < options.slowConnectionThreshold;
-
-      if (
-        !options.skipTiles &&
-        isSlowConnection &&
-        manifest.levelCount > 0 &&
-        manifest.tiles.some((t) => t.length > 0)
-      ) {
-        reportPhase('tiles');
-        img.fetchPriority = 'high';
-        const container = img.parentElement;
-        if (container) {
-          try {
-            await streamTiles(container, img, imageURL, manifest, {
-              concurrency: options.tileConcurrency,
-              onTile: () =>
-                options.onFrame?.({ phase: 'tiles', elapsed: performance.now() - startTime }),
-              urlRegistry,
-            });
-          } catch {
-            /* graceful */
-          }
-        }
-      }
-
-      reportPhase('full');
+  const processFull = async (): Promise<boolean> => {
+    let res: Response;
+    try {
+      res = await fullPromise;
+    } catch {
+      return false;
+    }
+    if (res.ok) {
+      showedFull = true;
       img.style.opacity = '0';
-      img.src = imageURL;
+      const blob = await res.blob();
+      img.src = createObjectURL(blob);
       img.fetchPriority = 'high';
       await img.decode();
       img.style.opacity = '1';
+      reportPhase('full');
+      return true;
     }
+    return false;
+  };
+
+  // Run both processors in parallel; each shows content as soon as its fetch completes
+  const [sidecarOk, fullOk] = await Promise.all([processSidecar(), processFull()]);
+
+  if (!sidecarOk) {
+    img.src = imageURL;
+    await img.decode();
+    revokeAll();
+    reportPhase('full');
+    return;
+  }
+
+  if (fullOk) {
+    revokeAll();
+    return;
+  }
+
+  // Full fetch failed; run pyramid→tiles→full fallback
+  // When sidecarOk is true, processSidecar set manifest and levelBlobs
+  const m = manifest!;
+  const blobs = levelBlobs!;
+
+  try {
+    for (let i = 1; i < blobs.length; i++) {
+      const blob = blobs[i];
+      const url = createObjectURL(blob);
+      await new Promise<void>((r) => requestAnimationFrame(() => r()));
+      img.style.opacity = '0';
+      img.src = url;
+      await img.decode();
+      img.style.opacity = '1';
+      options.onFrame?.({ phase: 'pyramid', elapsed: performance.now() - startTime });
+    }
+
+    const connection = (navigator as Navigator & { connection?: { downlink?: number } })
+      .connection;
+    const downlinkMbps = connection?.downlink ?? 0;
+    const isSlowConnection =
+      connection === undefined || downlinkMbps < options.slowConnectionThreshold;
+
+    if (
+      !options.skipTiles &&
+      isSlowConnection &&
+      m.levelCount > 0 &&
+      m.tiles.some((t) => t.length > 0)
+    ) {
+      reportPhase('tiles');
+      img.fetchPriority = 'high';
+      const container = img.parentElement;
+      if (container) {
+        try {
+          await streamTiles(container, img, imageURL, m, {
+            concurrency: options.tileConcurrency,
+            onTile: () =>
+              options.onFrame?.({ phase: 'tiles', elapsed: performance.now() - startTime }),
+            urlRegistry,
+          });
+        } catch {
+          /* graceful */
+        }
+      }
+    }
+
+    reportPhase('full');
+    img.style.opacity = '0';
+    img.src = imageURL;
+    img.fetchPriority = 'high';
+    await img.decode();
+    img.style.opacity = '1';
   } catch {
     img.src = imageURL;
     try {
