@@ -30,7 +30,10 @@ function deriveSidecarSrc(src: string): string {
   const pathname = match[1] ?? src;
   const query = match[2] ?? '';
   const hash = match[3] ?? '';
-  return `${pathname}.sidecar${query}${hash}`;
+  const extensionReplacedPath = pathname.replace(/\.(avif|gif|jpe?g|png|webp)$/i, '.sidecar');
+  const sidecarPath =
+    extensionReplacedPath === pathname ? `${pathname}.sidecar` : extensionReplacedPath;
+  return `${sidecarPath}${query}${hash}`;
 }
 
 export function ProgressiveImg({
