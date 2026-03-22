@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, useMemo } from 'react';
 import { loadProgressive } from '@sidecar/runtime';
 import type { LoaderOptions } from '@sidecar/runtime';
 
@@ -39,17 +39,26 @@ export function ProgressiveImg({
   onError,
 }: ProgressiveImgProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const imgRef = useRef<HTMLImageElement>(null);
-  const loaderAborted = useRef(false);
+  const imgRef = useRef<HTMLImageElement | null>(null);
+  const loadIdRef = useRef(0);
   const [phase, setPhase] = useState<'placeholder' | 'pyramid' | 'tiles' | 'full'>('placeholder');
   const [isInView, setIsInView] = useState(eager);
+  const [imgReady, setImgReady] = useState(false);
 
-  const resolvedPlaceholder = placeholder ?? FALLBACK_PLACEHOLDER(width, height);
+  const setImgRef = useCallback((el: HTMLImageElement | null) => {
+    imgRef.current = el;
+    setImgReady(!!el);
+  }, []);
+
+  const resolvedPlaceholder = useMemo(
+    () => placeholder ?? FALLBACK_PLACEHOLDER(width, height),
+    [placeholder, width, height]
+  );
 
   useEffect(() => {
-    if (!isInView || !imgRef.current) return;
+    if (!isInView || !imgReady || !imgRef.current) return;
 
-    loaderAborted.current = false;
+    const loadId = ++loadIdRef.current;
     const img = imgRef.current;
 
     img.src = resolvedPlaceholder;
@@ -59,25 +68,21 @@ export function ProgressiveImg({
     loadProgressive(img, src, sidecarSrc, {
       ...loaderOptions,
       onPhase: (p) => {
-        if (loaderAborted.current) return;
+        if (loadId !== loadIdRef.current) return;
         setPhase(p);
         loaderOptions?.onPhase?.(p);
       },
       onFrame: loaderOptions?.onFrame,
     })
       .then(() => {
-        if (loaderAborted.current) return;
+        if (loadId !== loadIdRef.current) return;
         onLoad?.();
       })
       .catch((err) => {
-        if (loaderAborted.current) return;
+        if (loadId !== loadIdRef.current) return;
         onError?.(err);
       });
-
-    return () => {
-      loaderAborted.current = true;
-    };
-  }, [isInView, src, sidecarSrc, resolvedPlaceholder, width, height, loaderOptions, onLoad, onError]);
+  }, [isInView, imgReady, src, sidecarSrc, resolvedPlaceholder, width, height, loaderOptions, onLoad, onError]);
 
   useEffect(() => {
     if (eager) return;
@@ -115,7 +120,7 @@ export function ProgressiveImg({
       }}
     >
       <img
-        ref={imgRef}
+        ref={setImgRef}
         alt={alt}
         src={resolvedPlaceholder}
         width={width}

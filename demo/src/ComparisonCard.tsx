@@ -84,6 +84,10 @@ export function ComparisonCard({
     reportMetrics({ full: elapsed });
   }, [reportMetrics]);
 
+  const handleSidecarError = useCallback((err: Error) => {
+    console.error('[Sidecar] load failed:', err);
+  }, []);
+
   const handleImgLoad = useCallback(() => {
     const elapsed = performance.now() - t0Ref.current;
     setLoaded(true);
@@ -173,6 +177,7 @@ export function ComparisonCard({
             eager
             loaderOptions={sidecarLoaderOptions}
             onLoad={handleSidecarLoad}
+            onError={handleSidecarError}
             style={imgStyle}
           />
         )}
