@@ -54,8 +54,12 @@ const LQIP_PLACEHOLDER =
     '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"><rect fill="#999" width="1" height="1"/></svg>'
   );
 
-const TRANSPARENT_PIXEL =
-  'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+/** Gray placeholder for strategies without custom placeholder (Native, Progressive) */
+const LOADING_PLACEHOLDER =
+  'data:image/svg+xml,' +
+  encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1" viewBox="0 0 1 1"><rect fill="%23333" width="100%" height="100%"/></svg>'
+  );
 
 /**
  * Loads image via fetch() so the demo throttle applies. Use for native/blurhash/lqip/progressive
@@ -89,14 +93,14 @@ function ImgViaFetch({
   const imgRef = useRef<HTMLImageElement>(null);
   const blobUrlRef = useRef<string | null>(null);
   const [displaySrc, setDisplaySrc] = useState<string>(
-    placeholder ?? TRANSPARENT_PIXEL
+    placeholder ?? LOADING_PLACEHOLDER
   );
-  const [isPlaceholder, setIsPlaceholder] = useState(!!placeholder);
+  const [isPlaceholder, setIsPlaceholder] = useState(true);
 
   useEffect(() => {
     if (loadTrigger <= 0) return;
-    setDisplaySrc(placeholder ?? TRANSPARENT_PIXEL);
-    setIsPlaceholder(!!placeholder);
+    setDisplaySrc(placeholder ?? LOADING_PLACEHOLDER);
+    setIsPlaceholder(true);
   }, [loadTrigger, placeholder]);
 
   useEffect(() => {
@@ -105,8 +109,9 @@ function ImgViaFetch({
     if (!img) return;
 
     const loadFull = async () => {
+      const fetchUrl = src.startsWith('/') ? new URL(src, window.location.origin).href : src;
       try {
-        const res = await fetch(src);
+        const res = await fetch(fetchUrl);
         if (!res.ok) {
           img.src = src;
           img.onload = () => onFull();
@@ -126,8 +131,7 @@ function ImgViaFetch({
           const entries = performance.getEntriesByType('resource');
           const r = entries.find(
             (e) =>
-              e.name === src ||
-              (typeof e.name === 'string' && e.name.includes(src.split('/').pop() ?? ''))
+              (typeof e.name === 'string' && (e.name === fetchUrl || e.name.includes(src.split('/').pop() ?? '')))
           );
           const size =
             r && 'transferSize' in r
@@ -168,6 +172,14 @@ function ImgViaFetch({
     };
   }, [loadTrigger, src, placeholder, fetchpriority, onFirstPixel, onFull]);
 
+  const handleError = useCallback(() => {
+    const img = imgRef.current;
+    if (img && displaySrc !== src) {
+      img.src = src;
+      img.onload = () => onFull();
+    }
+  }, [displaySrc, src, onFull]);
+
   return (
     <img
       ref={imgRef}
@@ -175,6 +187,7 @@ function ImgViaFetch({
       alt={alt}
       width={width}
       height={height}
+      onError={handleError}
       style={{
         ...style,
         transition: 'opacity 0.15s ease-out',

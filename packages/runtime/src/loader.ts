@@ -30,6 +30,8 @@ export async function loadProgressive(
   const options = { ...DEFAULT_OPTIONS, ...opts };
   const urlRegistry: string[] = [];
   const startTime = performance.now();
+  // Strip forceTiles=1 so final img.src loads the actual image (fetch mock uses it for initial 404 only)
+  const cleanImageURL = imageURL.replace(/\?forceTiles=1$/, '');
 
   const revokeAll = () => {
     for (const url of urlRegistry) {
@@ -120,7 +122,7 @@ export async function loadProgressive(
   const [sidecarOk, fullOk] = await Promise.all([processSidecar(), processFull()]);
 
   if (!sidecarOk) {
-    img.src = imageURL;
+    img.src = cleanImageURL;
     await img.decode();
     revokeAll();
     reportPhase('full');
@@ -166,7 +168,7 @@ export async function loadProgressive(
       const container = img.parentElement;
       if (container) {
         try {
-          await streamTiles(container, img, imageURL, m, {
+          await streamTiles(container, img, cleanImageURL, m, {
             concurrency: options.tileConcurrency,
             onTile: () =>
               options.onFrame?.({ phase: 'tiles', elapsed: performance.now() - startTime }),
@@ -180,12 +182,12 @@ export async function loadProgressive(
 
     reportPhase('full');
     img.style.opacity = '0';
-    img.src = imageURL;
+    img.src = cleanImageURL;
     img.fetchPriority = 'high';
     await img.decode();
     img.style.opacity = '1';
   } catch {
-    img.src = imageURL;
+    img.src = cleanImageURL;
     try {
       await img.decode();
     } catch {
