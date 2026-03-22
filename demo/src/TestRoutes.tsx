@@ -63,7 +63,7 @@ export function TestNative() {
         alt="Hero"
         width={800}
         height={500}
-        fetchPriority="high"
+        {...({ fetchpriority: 'high' } as React.ComponentProps<'img'>)}
         style={{
           position: 'absolute',
           inset: 0,

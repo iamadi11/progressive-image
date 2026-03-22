@@ -1,16 +1,16 @@
 import { useState, useRef, useCallback } from 'react';
 import { ProgressiveImg } from '@sidecar/react';
 
-const PICSUM = (id: number, w: number, h: number) =>
-  `https://picsum.photos/id/${id}/${w}/${h}`;
+const LOCAL_IMAGE = '/images/test.jpg';
+const LOCAL_SIDECAR = '/images/test.sidecar';
 
 const DEMO_IMAGES = [
-  { id: 237, w: 800, h: 600, label: 'Landscape 1' },
-  { id: 238, w: 800, h: 600, label: 'Landscape 2' },
-  { id: 239, w: 800, h: 600, label: 'Landscape 3' },
-  { id: 433, w: 600, h: 800, label: 'Portrait 1' },
-  { id: 434, w: 600, h: 800, label: 'Portrait 2' },
-  { id: 435, w: 600, h: 800, label: 'Portrait 3' },
+  { w: 400, h: 300, label: 'Image 1' },
+  { w: 400, h: 300, label: 'Image 2' },
+  { w: 400, h: 300, label: 'Image 3' },
+  { w: 300, h: 400, label: 'Image 4' },
+  { w: 300, h: 400, label: 'Image 5' },
+  { w: 300, h: 400, label: 'Image 6' },
 ];
 
 let fetchDelay = 0;
@@ -84,10 +84,11 @@ export function App() {
             gap: 16,
           }}
         >
-          {DEMO_IMAGES.map((img) => (
-            <div key={img.id}>
+          {DEMO_IMAGES.map((img, i) => (
+            <div key={i}>
               <ProgressiveImg
-                src={PICSUM(img.id, img.w, img.h)}
+                src={LOCAL_IMAGE}
+                sidecarSrc={LOCAL_SIDECAR}
                 alt={img.label}
                 width={img.w}
                 height={img.h}
@@ -123,7 +124,8 @@ export function App() {
           <div>
             <h3>ProgressiveImg (Sidecar)</h3>
             <ProgressiveImg
-              src={PICSUM(237, 600, 400)}
+              src={LOCAL_IMAGE}
+              sidecarSrc={LOCAL_SIDECAR}
               alt="Sidecar"
               width={600}
               height={400}
@@ -147,11 +149,11 @@ export function App() {
             >
               {comparisonKey > 0 && (
                 <img
-                  src={PICSUM(237, 600, 400)}
+                  src={LOCAL_IMAGE}
                   alt="Native"
                   width={600}
                   height={400}
-                  fetchPriority="high"
+                  {...({ fetchpriority: 'high' } as React.ComponentProps<'img'>)}
                   style={{
                     position: 'absolute',
                     inset: 0,
