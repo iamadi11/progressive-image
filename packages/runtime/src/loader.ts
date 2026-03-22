@@ -11,6 +11,9 @@ export interface LoaderOptions {
   slowConnectionThreshold?: number;
   tileConcurrency?: number;
   skipTiles?: boolean;
+  fullFetchDelayMs?: number;
+  fullFetchPriority?: 'auto' | 'high' | 'low';
+  sidecarFetchPriority?: 'auto' | 'high' | 'low';
 }
 
 const DEFAULT_OPTIONS: Required<LoaderOptions> = {
@@ -19,6 +22,9 @@ const DEFAULT_OPTIONS: Required<LoaderOptions> = {
   slowConnectionThreshold: 10,
   tileConcurrency: 4,
   skipTiles: false,
+  fullFetchDelayMs: 120,
+  fullFetchPriority: 'high',
+  sidecarFetchPriority: 'low',
 };
 
 export async function loadProgressive(
@@ -58,10 +64,25 @@ export async function loadProgressive(
   reportPhase('placeholder');
 
   img.style.transition = 'opacity 0.15s ease-out';
+  img.decoding = 'async';
 
-  // Start both fetches; show pyramid as soon as sidecar is ready (don't wait for full)
-  const sidecarPromise = fetch(sidecarURL);
-  const fullPromise = fetch(imageURL);
+  const withPriority = (priority: 'auto' | 'high' | 'low') =>
+    ({ priority } as RequestInit & { priority: 'auto' | 'high' | 'low' });
+
+  // Sidecar starts immediately, full image starts after a small delay by default.
+  // This keeps progressive UX while avoiding immediate bandwidth contention.
+  const sidecarPromise = fetch(sidecarURL, withPriority(options.sidecarFetchPriority));
+  let fullPromise: Promise<Response> | null = null;
+  let fullFetchDelayTimer: ReturnType<typeof setTimeout> | null = null;
+  const startFullFetch = (): Promise<Response> => {
+    if (!fullPromise) {
+      fullPromise = fetch(imageURL, withPriority(options.fullFetchPriority));
+    }
+    return fullPromise;
+  };
+  fullFetchDelayTimer = setTimeout(() => {
+    startFullFetch();
+  }, Math.max(0, options.fullFetchDelayMs));
 
   let manifest: Manifest | null = null;
   let levelBlobs: Blob[] | null = null;
@@ -72,12 +93,19 @@ export async function loadProgressive(
     try {
       sidecarRes = await sidecarPromise;
     } catch {
+      startFullFetch();
       return false;
     }
-    if (!sidecarRes.ok) return false;
+    if (!sidecarRes.ok) {
+      startFullFetch();
+      return false;
+    }
+    if (showedFull) return true;
     const sidecarBuf = await sidecarRes.arrayBuffer();
+    if (showedFull) return true;
     try {
       const parsed = parseSidecar(sidecarBuf);
+      if (showedFull) return true;
       manifest = parsed.manifest;
       levelBlobs = parsed.levelBlobs;
       if (img.width === 0) img.width = manifest.width;
@@ -87,7 +115,9 @@ export async function loadProgressive(
         const url = createObjectURL(levelBlobs[1]);
         img.style.opacity = '0';
         img.src = url;
-        await img.decode();
+        await img.decode().catch(() => {
+          /* best effort for progressive paint */
+        });
         img.style.opacity = '1';
         options.onFrame?.({ phase: 'pyramid', elapsed: performance.now() - startTime });
       }
@@ -100,7 +130,7 @@ export async function loadProgressive(
   const processFull = async (): Promise<boolean> => {
     let res: Response;
     try {
-      res = await fullPromise;
+      res = await startFullFetch();
     } catch {
       return false;
     }
@@ -120,6 +150,10 @@ export async function loadProgressive(
 
   // Run both processors in parallel; each shows content as soon as its fetch completes
   const [sidecarOk, fullOk] = await Promise.all([processSidecar(), processFull()]);
+  if (fullFetchDelayTimer) {
+    clearTimeout(fullFetchDelayTimer);
+    fullFetchDelayTimer = null;
+  }
 
   if (!sidecarOk) {
     img.src = cleanImageURL;
@@ -146,7 +180,9 @@ export async function loadProgressive(
       await new Promise<void>((r) => requestAnimationFrame(() => r()));
       img.style.opacity = '0';
       img.src = url;
-      await img.decode();
+      await img.decode().catch(() => {
+        /* best effort for progressive paint */
+      });
       img.style.opacity = '1';
       options.onFrame?.({ phase: 'pyramid', elapsed: performance.now() - startTime });
     }

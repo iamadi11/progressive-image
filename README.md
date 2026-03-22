@@ -1,6 +1,6 @@
 # Sidecar — Progressive Image Loading System
 
-A production-ready progressive image loading system that outperforms native progressive JPEG, BlurHash, LQIP, and `fetchpriority="high"` on connections slower than 10Mbps.
+A production-ready progressive image loading system designed to improve perceived image loading on constrained networks with graceful fallbacks to native loading.
 
 ## Architecture
 
@@ -124,9 +124,13 @@ pnpm bench:lighthouse   # requires: pnpm demo (in another terminal)
 pnpm bench:webpagetest  # requires: WPT_API_KEY, deployed URLs
 ```
 
+Benchmark scope:
+- `bench:synthetic` validates build/runtime round-trip characteristics (sidecar size budget, level extraction, parse correctness) in Node.js.
+- `bench:lighthouse` and `bench:webpagetest` are the runtime performance sources for FCP/LCP comparisons.
+
 See [PERFORMANCE_TESTING.md](./PERFORMANCE_TESTING.md) for the full testing guide.
 
-### Reference Results (Slow 4G, 1.6Mbps, 150ms RTT)
+### Reference Results (Sample: Slow 4G, 1.6Mbps, 150ms RTT)
 
 | Solution | FCP | LCP | TBT | CLS | SI |
 |----------|-----|-----|-----|-----|-----|
@@ -136,7 +140,7 @@ See [PERFORMANCE_TESTING.md](./PERFORMANCE_TESTING.md) for the full testing guid
 | Progressive JPEG | 820ms | 1190ms | 0ms | 0.000 | 820ms |
 | fetchpriority="high" | 870ms | 1190ms | 0ms | 0.000 | 870ms |
 
-**Key wins:** Sidecar LCP is ~320ms faster than alternatives. CLS = 0. FCP matches LQIP.
+These numbers are representative sample runs, not universal guarantees. Re-run benchmarks in your deployment context and CDN setup before making comparative claims.
 
 ## Browser Support
 

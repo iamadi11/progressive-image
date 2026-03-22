@@ -140,11 +140,18 @@ async function main() {
     if (others.length > 0) {
       const bestLcp = Math.min(...others.map((r) => r.lcp));
       const bestFcp = Math.min(...others.map((r) => r.fcp));
+      const formatDelta = (metric, sidecarValue, bestAltValue) => {
+        const delta = bestAltValue - sidecarValue;
+        const absDelta = Math.abs(delta);
+        if (delta > 0) return `Sidecar ${metric} vs best alternative: ${absDelta}ms faster`;
+        if (delta < 0) return `Sidecar ${metric} vs best alternative: ${absDelta}ms slower`;
+        return `Sidecar ${metric} vs best alternative: tie (0ms)`;
+      };
       console.log(
-        `\nSidecar FCP vs best alternative: ${bestFcp - sidecar.fcp}ms faster`
+        `\n${formatDelta('FCP', sidecar.fcp, bestFcp)} (raw delta: ${bestFcp - sidecar.fcp}ms)`
       );
       console.log(
-        `Sidecar LCP vs best alternative: ${bestLcp - sidecar.lcp}ms faster`
+        `${formatDelta('LCP', sidecar.lcp, bestLcp)} (raw delta: ${bestLcp - sidecar.lcp}ms)`
       );
     }
   }
