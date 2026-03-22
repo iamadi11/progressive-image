@@ -404,15 +404,14 @@ export function ComparisonCard({
           />
         )}
         {strategy === 'native' && (
-          <ImgViaFetch
+          <img
             src={HERO_IMAGE}
+            alt={label}
             width={width}
             height={height}
-            alt={label}
+            {...({ fetchpriority: 'high' } as React.ComponentProps<'img'>)}
             style={imgStyle}
-            fetchpriority="high"
-            onFull={handleImgLoad}
-            loadTrigger={loadTrigger}
+            onLoad={handleImgLoad}
           />
         )}
         {strategy === 'blurhash' && (
@@ -443,14 +442,13 @@ export function ComparisonCard({
           />
         )}
         {strategy === 'progressive-jpeg' && (
-          <ImgViaFetch
+          <img
             src={HERO_IMAGE}
+            alt={label}
             width={width}
             height={height}
-            alt={label}
             style={imgStyle}
-            onFull={handleImgLoad}
-            loadTrigger={loadTrigger}
+            onLoad={handleImgLoad}
           />
         )}
       </div>
