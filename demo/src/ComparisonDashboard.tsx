@@ -2,24 +2,12 @@
  * Comparison dashboard showing all five loading strategies side-by-side.
  */
 
+import './fetchSetup';
 import { useState, useCallback } from 'react';
 import { ComparisonCard } from './ComparisonCard';
+import { SidecarCapabilityTest } from './SidecarCapabilityTest';
+import { setFetchDelay, setComparisonForceTilesForFetch } from './fetchSetup';
 import type { StrategyMetrics } from './ComparisonCard';
-
-let fetchDelay = 0;
-const originalFetch = window.fetch.bind(window);
-window.fetch = function (
-  ...args: Parameters<typeof fetch>
-): Promise<Response> {
-  if (fetchDelay > 0) {
-    return new Promise((resolve, reject) => {
-      setTimeout(() => {
-        originalFetch(...args).then(resolve).catch(reject);
-      }, fetchDelay);
-    });
-  }
-  return originalFetch(...args);
-};
 
 const STRATEGIES: Array<{
   id: 'sidecar' | 'native' | 'blurhash' | 'lqip' | 'progressive-jpeg';
@@ -56,16 +44,19 @@ const STRATEGIES: Array<{
 export function ComparisonDashboard() {
   const [loadTrigger, setLoadTrigger] = useState(0);
   const [throttleMs, setThrottleMs] = useState(0);
+  const [forceTilesPath, setForceTilesPath] = useState(false);
   const [allMetrics, setAllMetrics] = useState<Record<string, StrategyMetrics>>({});
 
   const updateThrottle = useCallback((ms: number) => {
-    fetchDelay = ms;
+    setFetchDelay(ms);
     setThrottleMs(ms);
   }, []);
 
   const handleStartComparison = useCallback(() => {
+    setComparisonForceTilesForFetch(forceTilesPath);
+    performance.clearResourceTimings?.();
     setLoadTrigger((t) => t + 1);
-  }, []);
+  }, [forceTilesPath]);
 
   const handleMetrics = useCallback((strategyId: string, metrics: StrategyMetrics) => {
     setAllMetrics((prev) => ({ ...prev, [strategyId]: metrics }));
@@ -82,6 +73,14 @@ export function ComparisonDashboard() {
 
       <section style={{ marginBottom: 24 }}>
         <div style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={forceTilesPath}
+              onChange={(e) => setForceTilesPath(e.target.checked)}
+            />
+            <span>Force pyramid+tiles path (Sidecar)</span>
+          </label>
           <button
             onClick={handleStartComparison}
             style={{
@@ -128,14 +127,15 @@ export function ComparisonDashboard() {
             description={s.description}
             loadTrigger={loadTrigger}
             onMetrics={handleMetrics}
+            forceTilesPath={s.id === 'sidecar' ? forceTilesPath : false}
           />
         ))}
       </div>
 
       {loadTrigger > 0 && Object.keys(allMetrics).length > 0 && (
         <section style={{ marginTop: 32 }}>
-          <h2 style={{ fontSize: 18, marginBottom: 12 }}>Summary</h2>
-          <pre
+          <h2 style={{ fontSize: 18, marginBottom: 12 }}>Full Metrics Summary</h2>
+          <div
             style={{
               background: '#222',
               padding: 16,
@@ -144,15 +144,61 @@ export function ComparisonDashboard() {
               fontSize: 12,
             }}
           >
-            {Object.entries(allMetrics)
-              .map(([id, m]) => {
-                const label = STRATEGIES.find((s) => s.id === id)?.label ?? id;
-                return `${label}: first=${m.firstPixel ?? '-'}ms full=${m.full ?? '-'}ms`;
-              })
-              .join('\n')}
-          </pre>
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid #444', textAlign: 'left' }}>
+                  <th style={{ padding: '8px 12px' }}>Strategy</th>
+                  <th style={{ padding: '8px 12px' }}>Placeholder</th>
+                  <th style={{ padding: '8px 12px' }}>Pyramid</th>
+                  <th style={{ padding: '8px 12px' }}>Tiles</th>
+                  <th style={{ padding: '8px 12px' }}>Full</th>
+                  <th style={{ padding: '8px 12px' }}>Recognisable</th>
+                  <th style={{ padding: '8px 12px' }}>Sidecar B</th>
+                  <th style={{ padding: '8px 12px' }}>Image B</th>
+                  <th style={{ padding: '8px 12px' }}>Phases</th>
+                </tr>
+              </thead>
+              <tbody>
+                {STRATEGIES.map((s) => {
+                  const m = allMetrics[s.id];
+                  if (!m) return null;
+                  return (
+                    <tr key={s.id} style={{ borderBottom: '1px solid #333' }}>
+                      <td style={{ padding: '8px 12px' }}>{s.label}</td>
+                      <td style={{ padding: '8px 12px' }}>
+                        {m.firstPixel != null ? `${Math.round(m.firstPixel)}ms` : '—'}
+                      </td>
+                      <td style={{ padding: '8px 12px' }}>
+                        {m.pyramid != null ? `${Math.round(m.pyramid)}ms` : '—'}
+                      </td>
+                      <td style={{ padding: '8px 12px' }}>
+                        {m.tiles != null ? `${Math.round(m.tiles)}ms` : '—'}
+                      </td>
+                      <td style={{ padding: '8px 12px' }}>
+                        {m.full != null ? `${Math.round(m.full)}ms` : '—'}
+                      </td>
+                      <td style={{ padding: '8px 12px' }}>
+                        {m.recognisable != null ? `${Math.round(m.recognisable)}ms` : '—'}
+                      </td>
+                      <td style={{ padding: '8px 12px' }}>
+                        {m.sidecarBytes != null ? `${(m.sidecarBytes / 1024).toFixed(1)}KB` : '—'}
+                      </td>
+                      <td style={{ padding: '8px 12px' }}>
+                        {m.imageBytes != null ? `${(m.imageBytes / 1024).toFixed(1)}KB` : '—'}
+                      </td>
+                      <td style={{ padding: '8px 12px', fontSize: 10 }}>
+                        {m.phasesReached?.join('→') ?? '—'}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </section>
       )}
+
+      <SidecarCapabilityTest />
     </div>
   );
 }

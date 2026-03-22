@@ -10,8 +10,21 @@ const HERO_IMAGE = '/images/test.jpg';
 const SIDECAR_SRC = '/images/test.sidecar';
 
 export interface StrategyMetrics {
+  /** Time (ms) to first pixel / placeholder visible */
   firstPixel?: number;
+  /** Time (ms) to recognisable content (pyramid level or full) */
+  recognisable?: number;
+  /** Time (ms) to pyramid phase (sidecar parsed, level 1+ available) */
+  pyramid?: number;
+  /** Time (ms) to tiles phase (if used) */
+  tiles?: number;
+  /** Time (ms) to full-resolution image */
   full?: number;
+  /** Phase progression: which phases were reached */
+  phasesReached?: string[];
+  /** Resource transfer sizes (bytes) - from Performance API when available */
+  sidecarBytes?: number;
+  imageBytes?: number;
 }
 
 export interface ComparisonCardProps {
@@ -23,6 +36,10 @@ export interface ComparisonCardProps {
   loadTrigger: number;
   width?: number;
   height?: number;
+  /** Override loader options for sidecar (e.g. skipTiles, slowConnectionThreshold) */
+  loaderOverrides?: { skipTiles?: boolean; slowConnectionThreshold?: number };
+  /** When true, main image fetch is forced to fail to test pyramid+tiles path */
+  forceTilesPath?: boolean;
 }
 
 const BLURHASH_PLACEHOLDER =
@@ -46,16 +63,20 @@ export function ComparisonCard({
   loadTrigger,
   width = 280,
   height = 175,
+  loaderOverrides,
+  forceTilesPath = false,
 }: ComparisonCardProps) {
   const t0Ref = useRef<number>(0);
   const [metrics, setMetrics] = useState<StrategyMetrics>({});
   const [loaded, setLoaded] = useState(false);
+  const phasesRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     if (loadTrigger > 0) {
       t0Ref.current = performance.now();
       setMetrics({});
       setLoaded(false);
+      phasesRef.current = new Set();
     }
   }, [loadTrigger]);
 
@@ -72,8 +93,36 @@ export function ComparisonCard({
   const handleSidecarPhase = useCallback(
     (phase: string) => {
       const elapsed = performance.now() - t0Ref.current;
+      phasesRef.current.add(phase);
+      const phases = Array.from(phasesRef.current);
       if (phase === 'placeholder') {
-        reportMetrics({ firstPixel: elapsed });
+        reportMetrics({ firstPixel: elapsed, phasesReached: phases });
+      } else if (phase === 'pyramid') {
+        reportMetrics({
+          pyramid: elapsed,
+          recognisable: elapsed,
+          phasesReached: phases,
+        });
+      } else if (phase === 'tiles') {
+        reportMetrics({ tiles: elapsed, phasesReached: phases });
+      } else if (phase === 'full') {
+        reportMetrics({ full: elapsed, phasesReached: phases });
+      }
+    },
+    [reportMetrics]
+  );
+
+  const handleSidecarFrame = useCallback(
+    (f: { phase: string; elapsed: number }) => {
+      const phases = Array.from(phasesRef.current);
+      if (f.phase === 'pyramid') {
+        reportMetrics({
+          pyramid: f.elapsed,
+          recognisable: f.elapsed,
+          phasesReached: phases,
+        });
+      } else if (f.phase === 'tiles') {
+        reportMetrics({ tiles: f.elapsed, phasesReached: phases });
       }
     },
     [reportMetrics]
@@ -81,7 +130,22 @@ export function ComparisonCard({
 
   const handleSidecarLoad = useCallback(() => {
     const elapsed = performance.now() - t0Ref.current;
-    reportMetrics({ full: elapsed });
+    setLoaded(true);
+    // Collect resource timing for bytes
+    try {
+      const entries = performance.getEntriesByType('resource');
+      const sidecar = entries.find((e) => e.name.includes('.sidecar'));
+      const img = entries.find((e) => e.name === HERO_IMAGE || e.name.includes('test.jpg'));
+      const transferSize = (e: PerformanceResourceTiming) =>
+        e.transferSize > 0 ? e.transferSize : (e as PerformanceResourceTiming & { encodedBodySize?: number }).encodedBodySize ?? 0;
+      reportMetrics({
+        full: elapsed,
+        sidecarBytes: sidecar ? transferSize(sidecar as PerformanceResourceTiming) : undefined,
+        imageBytes: img ? transferSize(img as PerformanceResourceTiming) : undefined,
+      });
+    } catch {
+      reportMetrics({ full: elapsed });
+    }
   }, [reportMetrics]);
 
   const handleSidecarError = useCallback((err: Error) => {
@@ -91,7 +155,18 @@ export function ComparisonCard({
   const handleImgLoad = useCallback(() => {
     const elapsed = performance.now() - t0Ref.current;
     setLoaded(true);
-    reportMetrics({ full: elapsed });
+    try {
+      const entries = performance.getEntriesByType('resource');
+      const img = entries.find((e) => e.name === HERO_IMAGE || e.name.includes('test.jpg'));
+      const transferSize = (e: PerformanceResourceTiming) =>
+        e.transferSize > 0 ? e.transferSize : (e as PerformanceResourceTiming & { encodedBodySize?: number }).encodedBodySize ?? 0;
+      reportMetrics({
+        full: elapsed,
+        imageBytes: img ? transferSize(img as PerformanceResourceTiming) : undefined,
+      });
+    } catch {
+      reportMetrics({ full: elapsed });
+    }
   }, [reportMetrics]);
 
   const handlePlaceholderLoad = useCallback(() => {
@@ -101,8 +176,13 @@ export function ComparisonCard({
   }, [reportMetrics]);
 
   const sidecarLoaderOptions = useMemo(
-    () => ({ onPhase: handleSidecarPhase, skipTiles: true }),
-    [handleSidecarPhase]
+    () => ({
+      onPhase: handleSidecarPhase,
+      onFrame: handleSidecarFrame,
+      skipTiles: loaderOverrides?.skipTiles ?? false,
+      slowConnectionThreshold: loaderOverrides?.slowConnectionThreshold ?? 10,
+    }),
+    [handleSidecarPhase, handleSidecarFrame, loaderOverrides]
   );
 
   if (loadTrigger === 0) {
@@ -132,7 +212,7 @@ export function ComparisonCard({
           Click &quot;Start comparison&quot; to load
         </div>
         <p style={{ margin: '8px 0 0 0', fontSize: 11, color: '#666' }}>
-          First pixel: — | Full: —
+          Placeholder: — | Pyramid: — | Full: — | Bytes: —
         </p>
       </div>
     );
@@ -169,7 +249,7 @@ export function ComparisonCard({
       <div style={imageContainerStyle}>
         {strategy === 'sidecar' && (
           <ProgressiveImg
-            src={HERO_IMAGE}
+            src={forceTilesPath ? `${HERO_IMAGE}?forceTiles=1` : HERO_IMAGE}
             sidecarSrc={SIDECAR_SRC}
             alt={label}
             width={width}
@@ -226,10 +306,19 @@ export function ComparisonCard({
           />
         )}
       </div>
-      <p style={{ margin: '8px 0 0 0', fontSize: 11, color: '#888' }}>
-        First pixel: {metrics.firstPixel != null ? `${Math.round(metrics.firstPixel)}ms` : '—'} | Full:{' '}
-        {metrics.full != null ? `${Math.round(metrics.full)}ms` : '—'}
-      </p>
+      <div style={{ margin: '8px 0 0 0', fontSize: 11, color: '#888' }}>
+        <div>
+          Placeholder: {metrics.firstPixel != null ? `${Math.round(metrics.firstPixel)}ms` : '—'} |
+          Pyramid: {metrics.pyramid != null ? `${Math.round(metrics.pyramid)}ms` : '—'} |
+          Tiles: {metrics.tiles != null ? `${Math.round(metrics.tiles)}ms` : '—'} |
+          Full: {metrics.full != null ? `${Math.round(metrics.full)}ms` : '—'}
+        </div>
+        {(metrics.sidecarBytes != null || metrics.imageBytes != null) && (
+          <div style={{ marginTop: 2, color: '#666' }}>
+            Bytes: sidecar {metrics.sidecarBytes ?? '—'} | image {metrics.imageBytes ?? '—'}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

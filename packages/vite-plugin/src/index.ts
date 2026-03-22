@@ -90,6 +90,33 @@ export function sidecarPlugin(opts?: ViteSidecarOptions): Plugin {
         imgMatches.push({ full: match[0], src: match[1], rest: match[2] });
       }
 
+      // Inject placeholder into ProgressiveImg when src matches a processed image
+      const progImgRegex =
+        /<ProgressiveImg\s+src=["']([^"']+\.(?:jpg|jpeg)(?:\?[^"']*)?)["']([^>]*?)\/?>/g;
+      let progMatch;
+      while ((progMatch = progImgRegex.exec(code)) !== null) {
+        const srcWithQuery = progMatch[1];
+        const src = srcWithQuery.replace(/\?.*$/, '');
+        const rest = progMatch[2];
+        if (/placeholder=/.test(rest)) continue;
+        const normalized = src.startsWith('/') ? src : '/' + src.replace(/^\.\//, '');
+        const entry = Array.from(processedImages.values()).find(
+          (e) =>
+            e.srcPath === normalized ||
+            e.srcPath.endsWith(src) ||
+            src.endsWith(e.result.mainJpegPath.split('/').pop() ?? '')
+        );
+        if (!entry) continue;
+        const placeholder = entry.result.level0DataURI.replace(/"/g, '&quot;');
+        const fullProg = progMatch[0];
+        const replacement = fullProg.replace(
+          `src="${srcWithQuery}"`,
+          `src="${srcWithQuery}" placeholder="${placeholder}"`
+        );
+        modified = modified.replace(fullProg, replacement);
+        didReplace = true;
+      }
+
       const isBuild = config.command === 'build';
 
       for (const { full, src, rest } of imgMatches) {
